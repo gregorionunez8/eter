@@ -263,7 +263,14 @@ export class Scene {
     this.crystal.rotation.y += dt * 0.12; this.crystal.position.y = 3.7 + Math.sin(now * 0.001) * 0.15; this.particles.rotation.y += dt * 0.06;
     for (const [id, actor] of this.actors) this.placeLabel(id, { x: actor.group.position.x, z: actor.group.position.z }, actor.group.userData.kind === 'monster' ? 2 : 2.6);
     for (const npc of npcs) this.placeLabel(`npc-${npc.id}`, npc, 2.7);
-    for (const [id, group] of this.drops) { this.placeLabel(id, { x: group.position.x, z: group.position.z }, 0.8); group.rotation.y += dt * 0.2; }
+    const placedLoot: { x: number; y: number }[] = [];
+    for (const [id, group] of this.drops) {
+      const point = { x: group.position.x, z: group.position.z }, projected = this.project(point, 0.8);
+      let offset = 0;
+      while (placedLoot.some(other => Math.abs(other.x - projected.x) < 170 && Math.abs(other.y - (projected.y - offset)) < 22)) offset += 22;
+      placedLoot.push({ x: projected.x, y: projected.y - offset });
+      this.placeLabel(id, point, 0.8, offset); group.rotation.y += dt * 0.2;
+    }
     this.effects = this.effects.filter(effect => { if (effect.until < now) { this.disposeGroup(effect.mesh); return false; } effect.mesh.scale.multiplyScalar(1 + dt * 5); return true; });
     this.projectiles = this.projectiles.filter(projectile => {
       const progress = Math.min(1, (now - projectile.start) / projectile.duration);
@@ -273,6 +280,6 @@ export class Scene {
     });
     this.renderer.render(this.scene, this.camera);
   };
-  placeLabel(id: string, point: Point, height: number): void { const element = this.labels.get(id); if (!element) return; const p = this.project(point, height); element.style.display = p.visible ? '' : 'none'; element.style.left = `${p.x}px`; element.style.top = `${p.y}px`; }
+  placeLabel(id: string, point: Point, height: number, offset = 0): void { const element = this.labels.get(id); if (!element) return; const p = this.project(point, height); element.style.display = p.visible ? '' : 'none'; element.style.left = `${p.x}px`; element.style.top = `${p.y - offset}px`; }
   destroy(): void { this.running = false; this.resizeObserver.disconnect(); this.scene.traverse(object => { if (object instanceof THREE.Mesh || object instanceof THREE.Points) { object.geometry.dispose(); const mats = Array.isArray(object.material) ? object.material : [object.material]; mats.forEach(m => m.dispose()); } }); this.renderer.dispose(); this.renderer.forceContextLoss(); this.renderer.domElement.remove(); this.labelHost.replaceChildren(); }
 }

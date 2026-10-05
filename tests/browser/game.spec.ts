@@ -2,6 +2,17 @@ import { test, expect, type Page } from '@playwright/test';
 import { Store } from '../../server/database';
 
 const nonce = Date.now().toString(36);
+async function clickVisibleSprout(page: Page): Promise<string> {
+  let hit: { id: string; x: number; y: number } | undefined;
+  await expect.poll(async () => {
+    hit = await page.locator('.monster-label').filter({ hasText: 'Sproutling' }).evaluateAll(elements => elements.map(el => {
+      const rect = el.getBoundingClientRect(), x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+      return { id: (el as HTMLElement).dataset.entityId!, x, y, reachable: rect.width > 0 && x > 20 && x < 1200 && y > 150 && y < 650 && document.elementFromPoint(x, y)?.closest('[data-entity-id]') === el };
+    }).filter(value => value.reachable).sort((a, b) => Math.hypot(a.x - 720, a.y - 430) - Math.hypot(b.x - 720, b.y - 430))[0]);
+    return !!hit;
+  }).toBe(true);
+  await page.mouse.click(hit!.x, hit!.y); return hit!.id;
+}
 async function register(page: Page, suffix: string, classId: string): Promise<{ username: string; characterId: string }> {
   page.on('pageerror', error => console.log(`Browser ${suffix}: ${error.stack}`));
   page.on('console', message => { if (message.type() === 'error') console.log(`Console ${suffix}: ${message.text()}`); });
@@ -75,9 +86,7 @@ test('two actual Chrome clients share monsters, combat, exclusive loot, public p
   const monsterLabel = a.locator('.monster-label').filter({ hasText: 'Sproutling' });
   let loot: State['loot'][number] | undefined;
   for (let attempt = 0; attempt < 8 && !loot; attempt++) {
-    const boxes = await monsterLabel.evaluateAll(elements => elements.map(el => { const rect = el.getBoundingClientRect(); return { x: rect.x + rect.width / 2, y: rect.y + rect.height - 8, visible: rect.x > 20 && rect.y > 150 && rect.x < 1200 && rect.y < 650 }; }));
-    const visible = boxes.find(box => box.visible); if (!visible) break;
-    await monsterLabel.filter({ visible: true }).first().click();
+    await clickVisibleSprout(a);
     await a.waitForTimeout(5000);
     loot = state!.loot.find(d => d.ownerId === playerA.characterId && d.kind === 'crowns');
   }
@@ -113,8 +122,8 @@ test('two actual Chrome clients share monsters, combat, exclusive loot, public p
     if (collectedCrowns && equippedDrop) break;
     const live = state!.monsters.find(monster => monster.definitionId === 'sproutling' && monster.hp > 0)!;
     await admin(playerA.characterId, 'teleport', { x: live.x, z: live.z - 2 });
-    await a.locator(`[data-entity-id="${live.id}"]`).click();
-    await expect.poll(() => state!.monsters.find(monster => monster.id === live.id)?.hp).toBe(0);
+    const clickedId = await clickVisibleSprout(a);
+    await expect.poll(() => state!.monsters.find(monster => monster.id === clickedId)?.hp).toBe(0);
   }
   expect(collectedCrowns).toBeTruthy(); expect(equippedDrop).toBeTruthy();
   await a.screenshot({ path: 'test-results/multiplayer-final.png' });

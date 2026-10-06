@@ -4,7 +4,57 @@ import { getConfig, validateConfig, loadConfig, applyConfig } from '../server/co
 import { Store } from '../server/database';
 import { Game } from '../server/game';
 import { spots, skills } from '../shared/content';
-import { world } from '../shared/world';
+import { world, obstacles, isFarmLandmark, walkable, distance } from '../shared/world';
+import { migrateClassicLayout } from '../server/layout-migration';
+
+test('farm landmarks follow edited spots, preserve open clearings and disappear with deleted spots', () => {
+  const original = getConfig(), store = new Store(':memory:');
+  try {
+    const landmark = obstacles.find(o => isFarmLandmark(o) && o.id.includes('pass-2'))!;
+    assert.ok(landmark);
+    const edited = getConfig();
+    const spot = edited.spots.find(s => s.id === 'pass-2')!;
+    Object.assign(spot, { x: landmark.x, z: landmark.z, radius: 3 });
+    store.setSetting('content', validateConfig(edited)); loadConfig(store);
+    assert.ok(walkable(spot));
+    for (const o of obstacles.filter(isFarmLandmark)) for (const farm of spots) assert.ok(distance(o, farm) >= farm.radius + o.width / 2 + 1.5);
+    const stable = structuredClone(obstacles.filter(isFarmLandmark)); loadConfig(store); assert.deepEqual(obstacles.filter(isFarmLandmark), stable);
+    const removed = getConfig(); removed.spots = removed.spots.filter(s => s.id !== 'pass-2');
+    store.setSetting('content', validateConfig(removed)); loadConfig(store);
+    assert.ok(!obstacles.some(o => isFarmLandmark(o) && o.id.includes('pass-2')));
+    assert.ok(!spots.some(s => s.id === 'pass-2'));
+  } finally { applyConfig(original); store.close(); }
+});
+
+test('classic layout migration moves untouched entries while preserving owner edits, services, loot and deleted spots', () => {
+  const defaults = getConfig(), config = structuredClone(defaults);
+  Object.assign(config.npcs.find(n => n.id === 'brom')!, { x: -12, z: 4, dialogue: 'Custom forge', shop: ['iron-sword'] });
+  Object.assign(config.npcs.find(n => n.id === 'lyra')!, { x: 11.5, z: 5 });
+  Object.assign(config.spots.find(s => s.id === 'green-1')!, { x: 8, z: 38, radius: 6, count: 5, respawnMs: 12000, enabled: false });
+  Object.assign(config.spots.find(s => s.id === 'green-2')!, { x: -12, z: 48, radius: 6, count: 9, respawnMs: 12000 });
+  config.spots = config.spots.filter(s => s.id !== 'ruins-2');
+  migrateClassicLayout(config, defaults);
+  assert.equal(config.npcs.find(n => n.id === 'brom')!.x, -8);
+  assert.equal(config.npcs.find(n => n.id === 'brom')!.dialogue, 'Custom forge');
+  assert.deepEqual(config.npcs.find(n => n.id === 'brom')!.shop, ['iron-sword']);
+  assert.equal(config.npcs.find(n => n.id === 'lyra')!.x, 11.5);
+  assert.deepEqual(config.spots.find(s => s.id === 'green-1'), { ...defaults.spots.find(s => s.id === 'green-1')!, enabled: false });
+  assert.equal(config.spots.find(s => s.id === 'green-2')!.count, 9);
+  assert.equal(config.spots.find(s => s.id === 'green-2')!.z, 48);
+  assert.ok(!config.spots.some(s => s.id === 'ruins-2'));
+  const migrated = structuredClone(config); migrateClassicLayout(config, defaults); assert.deepEqual(config, migrated);
+  validateConfig(config);
+});
+
+test('classic layout does not displace a custom NPC when a new default market position is already occupied', () => {
+  const defaults = getConfig(), config = structuredClone(defaults);
+  const previous: Record<string, [number, number]> = { brom: [-12, 4], lyra: [12, 5], orin: [-12, -7], kael: [12, -8], seraph: [0, -13], ronan: [-17, 12], elyra: [17, 12], sylwen: [17, -15], 'reset-master': [-17, -15] };
+  for (const npc of config.npcs) { const [x, z] = previous[npc.id]; Object.assign(npc, { x, z }); }
+  Object.assign(config.npcs.find(n => n.id === 'ronan')!, { x: 7, z: 5 });
+  validateConfig(config); const ownerLayout = structuredClone(config.npcs);
+  migrateClassicLayout(config, defaults);
+  assert.deepEqual(config.npcs, ownerLayout); validateConfig(config);
+});
 
 test('structured configuration validates full content and rejects invalid references and unsafe values', () => {
   assert.deepEqual(validateConfig(getConfig()), getConfig());

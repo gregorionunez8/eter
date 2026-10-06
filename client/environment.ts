@@ -8,6 +8,7 @@ import { icon } from './icons';
 export class Environment {
   lamps: THREE.Mesh[] = [];
   private signTextures: THREE.Texture[] = [];
+  private groundFade?: THREE.CanvasTexture;
   constructor(readonly scene: THREE.Scene, readonly materials: MaterialLibrary) {}
   mesh(parent: THREE.Object3D, geometry: THREE.BufferGeometry, surface: Surface, color: number, p: number[], scale?: number[], repeat = 1): THREE.Mesh {
     const mesh = new THREE.Mesh(geometry, this.materials.get(surface, color, repeat)); mesh.position.set(p[0], p[1], p[2]);
@@ -24,11 +25,23 @@ export class Environment {
   lighting(daylight: number): void { for (const lamp of this.lamps) (lamp.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.04 + Math.max(0, 0.65 - daylight) * 1.6; }
   ground(x: number, z: number, width: number, depth: number, color: number, y: number, surface: Surface): void {
     const tileSize = surface === 'street' ? 2.5 : 5;
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), this.materials.get(surface, color, width / tileSize, depth / tileSize));
+    if (!this.groundFade) {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64; const context = canvas.getContext('2d')!;
+      const data = context.createImageData(64, 64);
+      for (let py = 0; py < 64; py++) for (let px = 0; px < 64; px++) {
+        const edge = Math.min(px, py, 63 - px, 63 - py), value = Math.round(Math.min(1, edge / 5) * 255), index = (py * 64 + px) * 4;
+        data.data.set([value, value, value, 255], index);
+      }
+      context.putImageData(data, 0, 0); this.groundFade = new THREE.CanvasTexture(canvas);
+    }
+    const material = this.materials.get(surface, color, width / tileSize, depth / tileSize).clone();
+    material.userData.shared = false; material.alphaMap = this.groundFade; material.transparent = true; material.depthWrite = false;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), material);
     mesh.position.set(x, y, z); mesh.rotation.x = -Math.PI / 2; mesh.receiveShadow = true; this.scene.add(mesh);
   }
   building(x: number, z: number, width: number, depth: number): void {
     const g = new THREE.Group(); g.position.set(x, 0, z); this.scene.add(g);
+    g.userData.occludingBuilding = true;
     const height = width > 6 ? 3.8 : 4.4, roofColor = x < 0 ? 0x78604d : 0x526f79;
     this.box(g, [width, height, depth], 'stone', 0xd6d1bd, [0, height / 2, 0], 2);
     this.box(g, [width + 0.12, 0.32, depth + 0.12], 'stone', 0x9ba5a0, [0, 0.16, 0], 2);
@@ -166,7 +179,7 @@ export class Environment {
         const stone = this.box(g, [width - 0.06, 0.32, depth / 4 - 0.03], 'stone', row % 2 ? 0xaab09c : 0xb9bca8, [0, 0.17 + row * 0.34, -depth / 2 + (i + 0.5) * depth / 4]); stone.rotation.y = (i % 2 ? 1 : -1) * 0.02;
       }
     }
-    this.ground(x, z, width + 0.4, depth + 0.4, 0x6c8575, 0.054, 'grass');
+    this.ground(x, z, width + 0.4, depth + 0.4, 0x747f84, 0.054, 'stone');
   }
   fountain(x: number, z: number): void {
     const g = new THREE.Group(); g.position.set(x, 0, z); this.scene.add(g);
@@ -184,6 +197,7 @@ export class Environment {
     }
   }
   regions(): void {
+    // Farming clearings are blended directly into the terrain albedo.
     // Low ground detail never adds hidden collision to an existing farming area.
     for (let i = 0; i < 26; i++) {
       const x = 33 + i * 17 % 41, z = -27 + i * 19 % 56;
@@ -244,7 +258,16 @@ export class Environment {
   }
   prop(id: string, x: number, z: number): void {
     const g = new THREE.Group(); g.position.set(x, 0, z); this.scene.add(g);
-    if (id.includes('farm-fence')) {
+    if (id.startsWith('gate-')) {
+      const labels: Record<string, [string, string]> = { 'gate-south': ['GREENFIELDS', 'Niv. 1–3'], 'gate-west': ['WHISPERWOOD', 'Niv. 6–10'], 'gate-east': ['STONEPASS', 'Niv. 14–18'], 'gate-north': ['ETHER RUINS', 'Niv. 24–32'] };
+      const [title, levels] = labels[id];
+      const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 192;
+      const context = canvas.getContext('2d')!; context.fillStyle = '#293032'; context.fillRect(0, 0, 512, 192); context.strokeStyle = '#b39a65'; context.lineWidth = 8; context.strokeRect(6, 6, 500, 180);
+      context.textAlign = 'center'; context.fillStyle = '#efdbaf'; context.font = 'bold 36px Georgia'; context.fillText(title, 256, 78); context.font = '28px Arial'; context.fillStyle = '#bfcbc0'; context.fillText(levels, 256, 134);
+      const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; this.signTextures.push(texture);
+      this.box(g, [0.15, 2.5, 0.15], 'wood', 0x66513c, [0, 1.25, 0]);
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.05), new THREE.MeshStandardMaterial({ map: texture, side: THREE.DoubleSide, roughness: 1 })); board.position.set(0.08, 2.2, 0.08); board.rotation.y = Math.PI / 4; g.add(board);
+    } else if (id.includes('farm-fence')) {
       if (id.endsWith('east')) g.rotation.y = Math.PI / 2;
       for (let i = 0; i < 5; i++) this.box(g, [0.12, 0.8, 0.12], 'wood', 0x92815c, [-2.3 + i * 1.15, 0.4, 0]);
       for (const y of [0.29, 0.61]) this.box(g, [4.9, 0.07, 0.065], 'wood', 0x87754f, [0, y, 0]);
@@ -294,5 +317,5 @@ export class Environment {
       for (const side of [-1, 1]) this.box(g, [0.15, 0.5, 0.5], 'stone', 0xa9b0a1, [side * 0.95, 0.25, 0]);
     }
   }
-  dispose(): void { for (const texture of this.signTextures) texture.dispose(); this.signTextures = []; }
+  dispose(): void { for (const texture of this.signTextures) texture.dispose(); this.signTextures = []; this.groundFade?.dispose(); }
 }

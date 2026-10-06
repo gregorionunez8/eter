@@ -4,6 +4,7 @@ Goal #2 combines original project art with selected CC0 human anatomy and clothi
 
 | Asset | Creator/source | License / provenance |
 | --- | --- | --- |
+| `public/art/aurelia-gameplay.png` | Screenshot rendered from Éter's own Three.js gameplay, 2026-10-06 | Access/selection backdrop from the real map, with HUD/labels hidden at capture. Uses the project art and credited CC0 anatomy/clothing below; no external game imagery. |
 | `public/art/aurelia-entry.png` | OpenAI built-in imagegen, generated for this project on 2026-10-05 | Original generated artwork; no external asset license. Use subject to the applicable OpenAI service terms. |
 | `public/art/material-atlas.jpg` | OpenAI built-in imagegen, generated for this project on 2026-10-06 | Original generated six-surface artwork. JPEG optimization only; sampled into 256px maps. Same applicable OpenAI service terms. |
 | Procedural surface and foliage maps | Éter project, `client/materials.ts` | Original project source; deterministic canvas textures, no third-party images. |
@@ -16,7 +17,7 @@ Goal #2 combines original project art with selected CC0 human anatomy and clothi
 | Foley, footsteps, pickup cues and ambient sound | Éter project, `client/audio.ts` | Original Web Audio synthesis; no imported recordings or music. |
 | Three.js room-based environment/reflection generator | Installed Three.js addon `RoomEnvironment` | Three.js MIT license, preserved in dependency package. Procedural environment only, no downloaded HDRI. |
 
-The generated entry painting is atmospheric artwork, not a screenshot of the playable map. The live world must independently meet the visual acceptance criteria.
+The earlier generated entry painting is retained as an original project asset. Goal #3 uses a screenshot of the actual playable map for access and selection. The live world must independently meet the visual acceptance criteria.
 
 Selected upstream exports are included, not the 280 MB/122 MB authoring archives or unused outfits. Color atlases are capped at 1024px (JPEG quality 92), normal/packed maps at 512px (PNG). `scripts/optimize-character-textures.ps1` documents the conversion. Selected runtime models/maps total approximately 13 MB before HTTP compression; source export names and attribution are retained.
 

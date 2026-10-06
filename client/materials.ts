@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { spots } from '../shared/content';
 
 export type Surface = 'stone' | 'street' | 'wood' | 'roof' | 'grass' | 'dirt' | 'cloth' | 'leather' | 'metal' | 'rock' | 'foliage' | 'skin' | 'fur';
 const artworkCells: Partial<Record<Surface, [number, number]>> = { street: [0, 0], stone: [1, 0], wood: [2, 0], roof: [0, 1], grass: [1, 1], dirt: [2, 1] };
@@ -24,11 +25,19 @@ export class MaterialLibrary {
       const stone = smooth(29, 41, wx + variation * 4), ruins = smooth(29, 40, -wz + variation * 3);
       let r = 116, g = 134, b = 82;
       r += forest * -37; g += forest * -35; b += forest * -16;
-      r += stone * 32; g += stone * -2; b += stone * 23;
-      r += ruins * -9; g += ruins * -9; b += ruins * 23;
+      g += stone * -10; b += stone * 44;
+      r += ruins * -26; g += ruins * -28; b += ruins * 40;
+      let worn = 0;
+      for (const spot of spots) {
+        if (spot.enabled === false || Math.abs(wx - spot.x) > spot.radius + 2 || Math.abs(wz - spot.z) > spot.radius + 2) continue;
+        const separation = Math.hypot(wx - spot.x, wz - spot.z);
+        worn = Math.max(worn, (1 - smooth(spot.radius * 0.45, spot.radius + 1 + variation, separation)) * 0.65);
+      }
+      const wornR = 144 - stone * 15 - ruins * 40, wornG = 133 - stone * 6 - ruins * 18, wornB = 94 + stone * 25 + ruins * 33;
+      r += (wornR - r) * worn; g += (wornG - g) * worn; b += (wornB - b) * worn;
       const trackWidth = 2.55 + Math.sin(wz * 1.31 + wx * 0.4) * 0.22;
       const track = 1 - smooth(trackWidth, trackWidth + 0.9, Math.min(Math.abs(wx), Math.abs(wz)));
-      r += (168 - r) * track; g += (151 - g) * track; b += (117 - b) * track;
+      r += (168 - stone * 28 - ruins * 56 - r) * track; g += (151 - stone * 15 - ruins * 31 - g) * track; b += (117 + stone * 9 + ruins * 13 - b) * track;
       const grain = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453, noise = (grain - Math.floor(grain) - 0.5) * 13 + variation * 8;
       const i = (y * 1024 + x) * 4; image.data[i] = r + noise; image.data[i + 1] = g + noise; image.data[i + 2] = b + noise; image.data[i + 3] = 255;
     }

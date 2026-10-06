@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { balance, monsters, spots, items, skills, npcs, equipmentSlots } from '../shared/content';
-import { obstacles, walkable, inSafeZone, world } from '../shared/world';
+import { obstacles, walkable, walkableSpotCenter, inSafeZone, world, refreshFarmLandmarks } from '../shared/world';
 import type { Store } from './database';
+import { migrateClassicLayout } from './layout-migration';
 
 const numeric = z.number().finite(), chance = numeric.min(0).max(1);
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/), name = z.string().trim().min(1).max(60).refine(v => !/[<>]/.test(v), 'HTML no permitido.');
@@ -88,7 +89,7 @@ export function validateConfig(input: unknown, store?: Store): EditableConfig {
   for (const spot of config.spots) {
     if (!config.monsters.some(m => m.id === spot.monsterId)) throw new Error('monsterId desconocido.');
     if (Math.abs(spot.x) <= world.safeHalfSize + spot.radius && Math.abs(spot.z) <= world.safeHalfSize + spot.radius) throw new Error('No se permiten spots sobre la ciudad segura.');
-    if (Math.abs(spot.x) + spot.radius >= 79 || Math.abs(spot.z) + spot.radius >= 79 || !walkable(spot)) throw new Error('Spot fuera del mundo o sobre un obstáculo.');
+    if (Math.abs(spot.x) + spot.radius >= 79 || Math.abs(spot.z) + spot.radius >= 79 || !walkableSpotCenter(spot)) throw new Error('Spot fuera del mundo o sobre un obstáculo.');
   }
   if (!inSafeZone(config.world.spawn) || !walkable(config.world.spawn) || config.npcs.some(n => Math.hypot(n.x - config.world.spawn.x, n.z - config.world.spawn.z) < 1.5)) throw new Error('Spawn debe ser caminable dentro de Aurelia.');
   if (store) validateOwnedLayouts(config, store, items);
@@ -99,6 +100,7 @@ export function applyConfig(config: EditableConfig): void {
   for (const [entries, collection] of [[config.monsters, monsters], [config.items, items], [config.skills, skills], [config.npcs, npcs]] as [{ id: string }[], { id: string }[]][]) for (const entry of entries) Object.assign(collection.find(m => m.id === entry.id)!, entry);
   spots.splice(0, spots.length, ...config.spots);
   for (const npc of npcs) Object.assign(obstacles.find(o => o.id === `npc-${npc.id}`)!, { x: npc.x, z: npc.z });
+  refreshFarmLandmarks();
 }
 export function loadConfig(store: Store): void {
   const layout = (config: EditableConfig): ItemLayout[] => config.items.map(({ id, width, height, slot }) => ({ id, width, height, slot }));
@@ -110,6 +112,7 @@ export function loadConfig(store: Store): void {
   const legacy = stored as Record<string, unknown>;
   if (legacy.version !== undefined && legacy.version !== 2) throw new Error('Versión de configuración desconocida.');
   const defaults = getConfig();
+  const layoutDefaults = structuredClone(defaults);
   // New code-defined content receives defaults without discarding existing owner overrides.
   for (const key of ['monsters', 'items', 'skills', 'npcs'] as const) {
     const entries = legacy[key]; if (entries === undefined && legacy.version === undefined) continue;
@@ -122,6 +125,7 @@ export function loadConfig(store: Store): void {
   } else defaults.spots = legacy.spots as EditableConfig['spots'];
   Object.assign(defaults.balance, legacy.balance);
   if (legacy.world) Object.assign(defaults.world.spawn, (legacy.world as EditableConfig['world']).spawn);
+  migrateClassicLayout(defaults, layoutDefaults);
   const upgraded = validateConfig(defaults);
   // Compare against the last applied layout, so resized items survive reopening while
   // items acquired under old layouts after a pending save cannot be silently corrupted.

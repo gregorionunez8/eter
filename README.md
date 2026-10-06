@@ -1,6 +1,6 @@
 # Éter
 
-Vertical slice MMORPG 3D original para navegador. Aurelia es una ciudad segura alrededor de un cristal de Éter, con cuatro regiones exteriores y progresión por combate. Goals #1 y #2 están completos y verificados: mundo medieval detallado, personajes equipados/animados, combate legible, interfaz de MMORPG y administración estructurada sobre la arquitectura autoritativa existente. La evidencia y sus límites están en `docs/verification.md`; la arquitectura visual y las guías de contenido están en `docs/goal-2-development.md`.
+MMORPG 3D original para navegador. Aurelia es una ciudad segura alrededor de un cristal de Éter, con cuatro regiones exteriores y progresión por combate. Goal #3 está en desarrollo: refocar cámara, estructura de farmeo y presentación para una experiencia deliberadamente del estilo MU 99b, conservando identidad y contenido propios. Alcance, decisiones y auditoría pendiente: `docs/goal-3-plan.md`. Goals #1 y #2 tienen evidencia histórica en `docs/verification.md`; esa evidencia no acredita los cambios nuevos.
 
 ## Instalación y ejecución
 
@@ -101,4 +101,4 @@ Clic suelo: caminar. Clic monstruo: seleccionar, acercarse y atacar. Clic loot: 
 
 Instalar dependencias con lockfile (`npm ci`), compilar y ejecutar `npm start` en un proceso Node persistente con volumen duradero para `data`. Configurar `HOST=0.0.0.0` solo si corresponde, `COOKIE_SECURE=true`, proxy HTTPS con soporte WebSocket para `/ws`, y el mismo host público para HTTP/WS. No usar hosting estático solo: la simulación necesita servidor persistente. Para diez jugadores usar una instancia; las herramientas administrativas deben permanecer protegidas. Hacer backups de SQLite mediante mecanismo coherente con WAL y cerrar el servidor limpiamente para el guardado final.
 
-Arte: anatomía y ropa humana CC0 de Quaternius adaptada a Éter; armaduras, armas, monstruos no humanos, edificios, árboles, superficies, iconos y efectos originales. Sonidos opcionales sintetizados con Web Audio. La entrada usa una pintura original generada, separada de la presentación 3D real del juego. Fuentes, licencias y modificaciones en `ASSET_CREDITS.md`. No se incluyen assets de MU ni otros juegos. Estado de pruebas y pendientes: `docs/verification.md`.
+Arte: anatomía y ropa humana CC0 de Quaternius adaptada a Éter; armaduras, armas, monstruos no humanos, edificios, árboles, superficies, iconos y efectos originales. Sonidos opcionales sintetizados con Web Audio. Acceso y selección usan una captura del mundo jugable para alinear su tono con el gameplay. Fuentes, licencias y modificaciones en `ASSET_CREDITS.md`. No se incluyen assets de MU ni otros juegos. Estado de pruebas y pendientes: `docs/verification.md`.

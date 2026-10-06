@@ -1,4 +1,18 @@
-# Verificación de Éter — Goal #2 completo
+# Verificación de Éter — Goal #3 pendiente
+
+2026-10-06. El goal actual exige feel MMORPG del estilo MU 99b con identidad original, no solamente tests aprobados. `docs/goal-3-plan.md` conserva alcance, criterios y auditoría. **Goal #3 sigue sin aceptación final.**
+
+- `npm.cmd test`: **33/33 aprobados**, sin skips, después de cámara/layout/targeting. Nuevas pruebas: migración conserva owner edits/servicios/spots borrados e idempotencia y evita desplazar NPCs personalizados; tres clases se acercan, paran en rango y publican target real.
+- Primera prueba focalizada Chrome: **1/1**, tres clases, cámara default/elevación/presencia (>90 px), caminar e inventario. Capturas `goal-3-camera-*.png` inspeccionadas; comprobaron mayor presencia y mostraron que la plaza todavía necesitaba compactación.
+- Build posterior: TypeScript y Vite aprobados, JS 710.25 kB / 195.94 kB gzip. Persiste aviso >500 kB.
+- `npm.cmd run test:e2e`: primera corrida completa **5/11**, 6 fallos; detalle en `docs/goal-3-first-e2e.md`. Corrida focalizada posterior: cámara/tres clases/grillas/drag aprobados; fixture de gear ajustado para usar puntos ganados. Segunda corrida completa **4/11**, 7 fallos; diagnóstico y correcciones en `docs/goal-3-second-e2e.md`. Nueva verificación focalizada en curso. No se atribuyen los 10/10 históricos a esta versión.
+- Falta inspección del layout/HUD final, login coherente, primer spot, combate normal de las tres clases, loot, servicios, día/noche y nuevas métricas. No se cierra el goal mientras falte evidencia o la composición siga genérica.
+
+Las pruebas tsx/Chrome requirieron ejecutar fuera del sandbox Windows por `uv_os_get_passwd ENOMEM`. Las pruebas autorizadas usan DBs aisladas. No se modificó la DB del propietario para preparar imágenes.
+
+---
+
+# Verificación de Éter — Goal #2 completo (historial)
 
 2026-10-06. **Goal #2 completo y verificado.** Goal #1 y su arquitectura se preservan; su auditoría histórica se conserva debajo. La aceptación se basa en regresión, juego real en Chrome y revisión de imágenes del mundo jugable, no solamente en código o pintura de entrada.
 

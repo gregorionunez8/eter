@@ -25,6 +25,8 @@ export const obstacles: Obstacle[] = [
     ['planter-west', -22, 9, 0.8, 3], ['planter-east', 22, 9, 0.8, 3],
     ['planter-northwest', -22, -11, 0.8, 3], ['planter-northeast', 22, -11, 0.8, 3],
     ['farm-fence-south', 17, 25, 5, 0.35], ['farm-fence-east', 21, 29, 0.35, 6],
+    ['gate-south', 5, 24, 0.8, 0.8], ['gate-west', -24, 5, 0.8, 0.8],
+    ['gate-east', 24, -5, 0.8, 0.8], ['gate-north', -5, -24, 0.8, 0.8],
   ].map(([id, x, z, width, depth]): Obstacle => ({ id: String(id), x: Number(x), z: Number(z), width: Number(width), depth: Number(depth), kind: 'prop' })),
 ];
 // Deterministic scenery keeps client rendering and server collision identical.
@@ -33,6 +35,7 @@ for (let i = 0; i < 80; i++) {
   const z = ((i * 61 + 17) % 146) - 73;
   if (Math.abs(x) < 27 && Math.abs(z) < 27) continue;
   if (Math.abs(x) < 5 || Math.abs(z) < 5) continue;
+  if (spots.some(s => distance(s, { x, z }) < s.radius + 2)) continue;
   obstacles.push({ id: `scenery-${i}`, x, z, width: 1.8, depth: 1.8, kind: x > 30 ? 'rock' : 'tree' });
 }
 // Forest edges surround stable, open farming clearings rather than filling them.
@@ -44,13 +47,33 @@ for (let i = 0; i < 70; i++) {
 for (const [i, [x, z, width, depth]] of [[74, 6, 5, 8], [74, -9, 5, 9], [73, 26, 6, 7], [37, 25, 5, 7], [39, -26, 6, 5]].entries()) {
   obstacles.push({ id: `ridge-${i}`, x, z, width, depth, kind: 'rock' });
 }
+export function isFarmLandmark(obstacle: Obstacle): boolean { return obstacle.id.startsWith('farm-landmark-'); }
+/** Rebuilt after content loads; owner-edited farming clearings stay open. */
+export function refreshFarmLandmarks(): void {
+  for (let i = obstacles.length - 1; i >= 0; i--) if (isFarmLandmark(obstacles[i])) obstacles.splice(i, 1);
+  for (const spot of spots) {
+    if (spot.enabled === false || !['Stonepass', 'Ether Ruins'].includes(spot.region ?? '')) continue;
+    const ruins = spot.region === 'Ether Ruins', width = ruins ? 1.8 : 2.4;
+    for (let i = 0; i < 3; i++) {
+      const angle = Math.PI / 6 + i * Math.PI * 2 / 3, radius = spot.radius + 4;
+      const x = spot.x + Math.cos(angle) * radius, z = spot.z + Math.sin(angle) * radius;
+      if (Math.abs(x) < 4 || Math.abs(z) < 4 || Math.abs(x) + width / 2 >= 79 || Math.abs(z) + width / 2 >= 79 || inSafeZone({ x, z })) continue;
+      if (spots.some(other => distance(other, { x, z }) < other.radius + width / 2 + 1.5)) continue;
+      if (obstacles.some(other => Math.abs(other.x - x) < (other.width + width) / 2 + 1 && Math.abs(other.z - z) < (other.depth + width) / 2 + 1)) continue;
+      obstacles.push({ id: `farm-landmark-${ruins ? 'ruin-pillar' : 'rock'}-${spot.id}-${i}`, x, z, width, depth: width, kind: ruins ? 'wall' : 'rock' });
+    }
+  }
+}
+refreshFarmLandmarks();
 export function inSafeZone(point: Point): boolean {
   return Math.abs(point.x) <= world.safeHalfSize && Math.abs(point.z) <= world.safeHalfSize;
 }
-export function walkable(point: Point): boolean {
+export function walkable(point: Point): boolean { return walkableAgainst(point, obstacles); }
+export function walkableSpotCenter(point: Point): boolean { return walkableAgainst(point, obstacles.filter(o => !isFarmLandmark(o))); }
+function walkableAgainst(point: Point, blockers: Obstacle[]): boolean {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.z)) return false;
   if (Math.abs(point.x) >= world.halfSize - 1 || Math.abs(point.z) >= world.halfSize - 1) return false;
-  return !obstacles.some(o => Math.abs(point.x - o.x) < o.width / 2 + world.playerRadius && Math.abs(point.z - o.z) < o.depth / 2 + world.playerRadius);
+  return !blockers.some(o => Math.abs(point.x - o.x) < o.width / 2 + world.playerRadius && Math.abs(point.z - o.z) < o.depth / 2 + world.playerRadius);
 }
 export function distance(a: Point, b: Point): number { return Math.hypot(a.x - b.x, a.z - b.z); }
 export function clearSegment(a: Point, b: Point): boolean {

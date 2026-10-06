@@ -1,4 +1,16 @@
-# Éter — Goal #2 completo y verificado
+# Éter — Goal #3 en desarrollo
+
+2026-10-06. Se recibió el alcance completo de 40 secciones: experiencia deliberadamente estilo MU 99b, con contenido propio; prioridad cámara/escala/framing, ciudad/spots, combate y HUD. Se excluyen expansiones como party/trade/guilds. `docs/goal-3-plan.md` registra requisitos, cambios y evidencia necesaria.
+
+Implementado: cámara cercana 8.5 (7.5–10.5), elevación ~35.3°, atenuación de edificios que oculten jugador/target, núcleo de pavimento menor, servicios acercados, spots más densos/cercanos y señales, loot físico +20%, orientación por target de servidor, HP/rango del objetivo y HUD/grilla/slots con marco compacto. Migración conserva contenido personalizado y saves.
+
+Evidencia disponible: **33/33 tests de servidor aprobados**. Primera suite completa **5/11**; segunda **4/11**, con diagnóstico en `docs/goal-3-first-e2e.md` y `docs/goal-3-second-e2e.md`. Verificación focalizada posterior: cámara/tres clases/grillas/drag aprobados; multiplayer terminó el movimiento después del plazo y el principiante necesitó caminar hasta Sanctum para verlo con cámara cercana. Se corrigieron interferencias del encabezado y observación de conexiones viejas. Acceso/select usan el mapa jugable; soporte/movilidad mantienen modo de ataque. Tercera suite completa en curso con perfiles livianos para Radeon R5/SwiftShader. Goal pendiente de regreso/servicios, doce skills, día/noche y performance de varios clientes.
+
+Goal #3 sigue activo y no está completo. Los informes siguientes son históricos.
+
+---
+
+# Éter — Goal #2 completo y verificado (historial)
 
 Actualizado el 2026-10-06. **Goal #2 completo y verificado.** Se preservaron Three.js/Vite, Node HTTP/WebSocket autoritativo, SQLite y todos los sistemas de Goal #1. La transformación incluye anatomía/ropa humana CC0 adaptada, monstruos originales animados, equipo visible, migración segura `armor` → `chest`, Aurelia detallada, armilar de Éter, regiones distintas, materiales originales, iluminación, combate/loot/audio e interfaces de juego y administración nuevas.
 

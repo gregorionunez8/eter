@@ -71,15 +71,15 @@ export const monsters: MonsterDefinition[] = [
 ];
 export interface Spot { id: string; monsterId: string; x: number; z: number; radius: number; count: number; respawnMs: number; enabled?: boolean; region?: 'Greenfields' | 'Whisperwood' | 'Stonepass' | 'Ether Ruins' }
 export const spots: Spot[] = [
-  { id: 'green-1', monsterId: 'sproutling', x: 8, z: 38, radius: 6, count: 5, respawnMs: 12000 },
-  { id: 'green-2', monsterId: 'sproutling', x: -12, z: 48, radius: 6, count: 4, respawnMs: 12000 },
-  { id: 'green-3', monsterId: 'wild-beetle', x: 20, z: 58, radius: 7, count: 5, respawnMs: 14000 },
-  { id: 'wood-1', monsterId: 'forest-wolf', x: -42, z: 16, radius: 7, count: 4, respawnMs: 16000 },
-  { id: 'wood-2', monsterId: 'thornling', x: -58, z: 34, radius: 7, count: 5, respawnMs: 18000 },
-  { id: 'pass-1', monsterId: 'rogue', x: 45, z: -8, radius: 6, count: 4, respawnMs: 18000 },
-  { id: 'pass-2', monsterId: 'stone-beetle', x: 60, z: 12, radius: 7, count: 5, respawnMs: 20000 },
-  { id: 'ruins-1', monsterId: 'orc-scout', x: -12, z: -46, radius: 7, count: 5, respawnMs: 22000 },
-  { id: 'ruins-2', monsterId: 'stone-golem', x: 15, z: -62, radius: 7, count: 3, respawnMs: 25000 },
+  { id: 'green-1', monsterId: 'sproutling', x: 6, z: 32, radius: 4, count: 6, respawnMs: 10000 },
+  { id: 'green-2', monsterId: 'sproutling', x: -9, z: 40, radius: 4.5, count: 5, respawnMs: 11000 },
+  { id: 'green-3', monsterId: 'wild-beetle', x: 16, z: 46, radius: 5, count: 5, respawnMs: 13000 },
+  { id: 'wood-1', monsterId: 'forest-wolf', x: -36, z: 14, radius: 5, count: 5, respawnMs: 14000 },
+  { id: 'wood-2', monsterId: 'thornling', x: -48, z: 28, radius: 5, count: 5, respawnMs: 16000 },
+  { id: 'pass-1', monsterId: 'rogue', x: 36, z: -8, radius: 4.5, count: 5, respawnMs: 16000 },
+  { id: 'pass-2', monsterId: 'stone-beetle', x: 49, z: 10, radius: 5, count: 5, respawnMs: 18000 },
+  { id: 'ruins-1', monsterId: 'orc-scout', x: -9, z: -36, radius: 5, count: 5, respawnMs: 18000 },
+  { id: 'ruins-2', monsterId: 'stone-golem', x: 12, z: -49, radius: 5, count: 4, respawnMs: 22000 },
 ];
 export interface ItemDefinition { id: string; name: string; width: number; height: number; slot?: Slot; requirements?: Partial<Stats>; affinity?: ClassId; damage?: number; defense?: number; affinityBonus?: number; price: number; durability?: number; consumable?: 'hp' | 'mana'; color: number; quality?: 'common' | 'uncommon' | 'rare'; setId?: string; dropEligible?: boolean; properties?: ItemModifiers }
 export const items: ItemDefinition[] = [
@@ -101,13 +101,13 @@ export const items: ItemDefinition[] = [
 export const equipmentSlots: Slot[] = ['helmet', 'chest', 'pants', 'gloves', 'boots', 'weapon', 'offhand', 'wings', 'necklace', 'ring1', 'ring2'];
 export interface NpcDefinition { id: string; name: string; role: string; x: number; z: number; dialogue: string; shop: string[] }
 export const npcs: NpcDefinition[] = [
-  { id: 'brom', name: 'Brom', role: 'Herrero', x: -12, z: 4, dialogue: 'Una hoja bien cuidada vale por dos. ¿Reparamos tu equipo?', shop: ['iron-sword', 'steel-armor', 'leather-boots', 'bronze-helmet', 'wooden-shield'] },
-  { id: 'lyra', name: 'Lyra', role: 'Alquimista', x: 12, z: 5, dialogue: 'Un poco de luz embotellada para el camino.', shop: ['hp-potion', 'mana-potion'] },
-  { id: 'orin', name: 'Orin', role: 'Sanctum', x: -12, z: -7, dialogue: 'Tu Sanctum guarda lo que aún no necesitás llevar.', shop: [] },
-  { id: 'kael', name: 'Kael', role: 'Portales', x: 12, z: -8, dialogue: 'La red de Éter siempre te traerá de vuelta a Aurelia.', shop: [] },
-  { id: 'seraph', name: 'Seraph', role: 'Maestro de habilidades', x: 0, z: -13, dialogue: 'Cuatro disciplinas acompañan tu clase. Practicá y encontrá tu ritmo.', shop: [] },
-  { id: 'ronan', name: 'Ronan', role: 'Armas de Vanguard', x: -17, z: 12, dialogue: 'Firmeza en los pies, valor en el corazón.', shop: ['iron-sword', 'linen-armor', 'wooden-shield', 'leather-pants'] },
-  { id: 'elyra', name: 'Elyra', role: 'Equipo de Arcanist', x: 17, z: 12, dialogue: 'El Éter responde a quien sabe escuchar.', shop: ['ether-staff', 'linen-armor', 'copper-necklace', 'copper-ring'] },
-  { id: 'sylwen', name: 'Sylwen', role: 'Equipo de Ranger', x: 17, z: -15, dialogue: 'Seguí el viento, pero elegí tu propio rumbo.', shop: ['ash-bow', 'leather-boots', 'leather-pants', 'leather-gloves'] },
-  { id: 'reset-master', name: 'Maestro de Reset', role: 'Renacimiento', x: -17, z: -15, dialogue: 'Al nivel 500 comienza una nueva vuelta del camino.', shop: [] },
+  { id: 'brom', name: 'Brom', role: 'Herrero', x: -8, z: 4, dialogue: 'Una hoja bien cuidada vale por dos. ¿Reparamos tu equipo?', shop: ['iron-sword', 'steel-armor', 'leather-boots', 'bronze-helmet', 'wooden-shield'] },
+  { id: 'lyra', name: 'Lyra', role: 'Alquimista', x: 8, z: 5, dialogue: 'Un poco de luz embotellada para el camino.', shop: ['hp-potion', 'mana-potion'] },
+  { id: 'orin', name: 'Orin', role: 'Sanctum', x: -8, z: -10, dialogue: 'Tu Sanctum guarda lo que aún no necesitás llevar.', shop: [] },
+  { id: 'kael', name: 'Kael', role: 'Portales', x: 8, z: -10, dialogue: 'La red de Éter siempre te traerá de vuelta a Aurelia.', shop: [] },
+  { id: 'seraph', name: 'Seraph', role: 'Maestro de habilidades', x: 0, z: -9, dialogue: 'Cuatro disciplinas acompañan tu clase. Practicá y encontrá tu ritmo.', shop: [] },
+  { id: 'ronan', name: 'Ronan', role: 'Armas de Vanguard', x: -12, z: 12, dialogue: 'Firmeza en los pies, valor en el corazón.', shop: ['iron-sword', 'linen-armor', 'wooden-shield', 'leather-pants'] },
+  { id: 'elyra', name: 'Elyra', role: 'Equipo de Arcanist', x: 12, z: 12, dialogue: 'El Éter responde a quien sabe escuchar.', shop: ['ether-staff', 'linen-armor', 'copper-necklace', 'copper-ring'] },
+  { id: 'sylwen', name: 'Sylwen', role: 'Equipo de Ranger', x: 12, z: -15, dialogue: 'Seguí el viento, pero elegí tu propio rumbo.', shop: ['ash-bow', 'leather-boots', 'leather-pants', 'leather-gloves'] },
+  { id: 'reset-master', name: 'Maestro de Reset', role: 'Renacimiento', x: -12, z: -15, dialogue: 'Al nivel 500 comienza una nueva vuelta del camino.', shop: [] },
 ];

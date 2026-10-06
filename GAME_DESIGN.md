@@ -1,4 +1,10 @@
-# Éter — diseño del vertical slice
+# Éter — diseño del MMORPG
+
+Goal #3 está en desarrollo. La dirección es un MMORPG original con experiencia deliberadamente del estilo MU 99b: personaje protagonista, cámara fija cercana, control por clic, ataque normal simple, auto-approach, spots compactos y regreso frecuente a una ciudad útil. No se incorporan sistemas de expansión. La regla de aceptación visual y el alcance completo están en `docs/goal-3-plan.md`; los apartados de Goal #2 siguientes conservan contexto histórico salvo las actualizaciones explícitas.
+
+La cámara vigente usa half-height 8.5 (7.5–10.5), azimut 45° y elevación ~35.3°. Escala física de personajes y colisiones preservada: la presencia aumenta por encuadre. Edificios que oculten jugador/target se atenúan; target autoritativo orienta actores detenidos. Un panel de objetivo aporta HP y estado de rango. Loot físico se amplía 20% y HUD se agrupa en un marco compacto con grilla y once slots más contrastados.
+
+Aurelia reemplaza el pavimento total por núcleo de 19×19, calles de 4.5 y patios de servicios. Safe zone sigue en ±23; servicios principales se acercan a ±8 y comercios a ±12. El primer spot está en (6,32), radio 4, seis mobs y respawn 10 s. Los demás grupos se compactan y acercan, con clearings y señales de salida. Defaults antiguos intactos migran; configuraciones personalizadas conservan autoridad. El combate, progreso manual, afinidad híbrida, 500/reset y economía siguen autoritativos. Balance definitivo y aceptación visual todavía pendientes.
 
 Éter es la energía natural fundamental del mundo. Aurelia creció alrededor de un cristal y brinda seguridad, servicios y un punto de regreso. Un entorno luminoso de piedra clara, vegetación y magia sobria acompaña reglas simples de MMORPG clásico. Goal #2 está completo y conserva la simulación de Goal #1 con una presentación original de fantasía clásica: materiales texturados, personajes articulados/equipados, arquitectura medieval, armilar de Éter y UI compacta. La aceptación y sus límites se registran en `docs/verification.md`.
 
@@ -6,7 +12,7 @@
 
 Los once slots son Casco, Pechera, Pantalón, Guantes, Botas, Arma, Secundaria, Alas, Collar y dos Anillos. No existe un slot Armor ni un slot Set. IDs como `steel-armor` conservan su identidad de item, usando ahora `chest`; SQLite migra saves antiguos sin perder instancias. Las cinco piezas tienen soporte visual sobre los joints del cuerpo. Arma, escudo y pechera se representan en el mundo y en la selección; requisitos y afinidad conservan builds híbridas. `setId` agrupa piezas para una futura extensión sin activar bonus nuevos. Calidad y Suerte preparan presentación/datos; no implementan upgrades.
 
-La cámara isométrica parte de zoom 16 y limita 12–26. Clic y arrastre sostenido sobre suelo envían intenciones de movimiento; elegir un enemigo mantiene acercamiento y ataque autoritativos. Picking usa volúmenes invisibles más cómodos, independientes de la colisión de juego. Indicador de objetivo y etiquetas separadas mantienen legibilidad. Efectos de daño, proyectiles, animaciones y números consumen eventos de servidor; no deciden resultados ni retrasan los ticks para simular impactos.
+La cámara isométrica actual parte de half-height 8.5 y limita 7.5–10.5. Clic y arrastre sostenido sobre suelo envían intenciones de movimiento; elegir un enemigo mantiene acercamiento y ataque autoritativos. Picking usa volúmenes invisibles más cómodos, independientes de la colisión de juego. Indicador de objetivo y etiquetas separadas mantienen legibilidad. Efectos de daño, proyectiles, animaciones y números consumen eventos de servidor; no deciden resultados ni retrasan los ticks para simular impactos.
 
 Crowns tienen pilas de monedas y cantidades formateadas. Éter es un fragmento flotante sobrio, con halo, motas y sonido propio. Items llevan la ilustración original de su categoría al suelo. Ningún recurso se acredita sin pickup. HUD y bolsas usan iconos originales, cooldown/mana visible, tooltips con requisitos/durabilidad/afinidad y layout de equipo con figura humana central. No hay tutorial obligatorio.
 

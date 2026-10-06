@@ -35,7 +35,7 @@ function originAllowed(req: IncomingMessage): boolean {
   try { return new URL(req.headers.origin).host === req.headers.host; } catch { return false; }
 }
 const credentials = z.object({ username: z.string().min(3).max(24), password: z.string().min(1).max(128) }).strict();
-const server = createServer(async (req, res) => {
+const server = createServer({ keepAliveTimeout: 60000 }, async (req, res) => {
   const path = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).pathname;
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -118,6 +118,9 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream' }); res.end(data);
   } catch (error) { json(res, 400, { error: error instanceof z.ZodError ? 'Datos inválidos.' : error instanceof Error ? error.message : 'Error de solicitud.' }); }
 });
+// Buffer the advertised idle deadline instead of resetting reused connections
+// at its boundary during expensive local rendering or model loads.
+if ('keepAliveTimeoutBuffer' in server) server.keepAliveTimeoutBuffer = 5000;
 const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);

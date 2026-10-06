@@ -16,6 +16,7 @@ export class CharacterPreview {
   private raf = 0;
   private observer: ResizeObserver;
   private previous = 0;
+  private frameInterval = 33;
   private environment?: THREE.WebGLRenderTarget;
   constructor(private host: HTMLElement) {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -24,7 +25,7 @@ export class CharacterPreview {
     if (!extension || !/swiftshader|software|llvmpipe/i.test(String(gl.getParameter(extension.UNMASKED_RENDERER_WEBGL)))) {
       const generator = new THREE.PMREMGenerator(this.renderer), room = new RoomEnvironment();
       this.environment = generator.fromScene(room, 0.04); this.scene.environment = this.environment.texture; this.scene.environmentIntensity = 0.65; room.dispose(); generator.dispose();
-    } else { this.renderer.setPixelRatio(0.65); this.materials.bumpEnabled = false; }
+    } else { this.renderer.setPixelRatio(0.65); this.materials.bumpEnabled = false; this.frameInterval = 100; }
     this.renderer.setClearColor(0, 0); host.append(this.renderer.domElement);
     this.scene.add(new THREE.HemisphereLight(0xd6eafa, 0x6a6952, 1.2));
     const sun = new THREE.DirectionalLight(0xffe2b8, 2.2); sun.position.set(-3, 5, 4); this.scene.add(sun);
@@ -42,7 +43,7 @@ export class CharacterPreview {
   }
   private frame = (now: number): void => {
     this.raf = requestAnimationFrame(this.frame);
-    if (now - this.previous < 33) return;
+    if (now - this.previous < this.frameInterval) return;
     if (this.actor) this.factory.animate(this.actor, now, Math.min(0.05, (now - this.previous) / 1000));
     this.previous = now; this.renderer.render(this.scene, this.camera);
   };

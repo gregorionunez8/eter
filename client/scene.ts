@@ -10,8 +10,9 @@ import { Effects, type EffectEvent } from './effects';
 import { LootArt } from './loot';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { ActorFactory, type ActorRig, type EquipmentAppearance } from './actors';
+import { presentation } from './presentation';
 
-export interface VisibleEntity extends Point { id: string; classId?: ClassId; definitionId?: string; name?: string; hp: number; maxHp?: number; animation: string; equipment?: EquipmentAppearance }
+export interface VisibleEntity extends Point { id: string; classId?: ClassId; definitionId?: string; name?: string; hp: number; maxHp?: number; animation: string; targetId?: string; equipment?: EquipmentAppearance }
 export interface VisibleLoot extends Point { id: string; kind: string; name: string; ownerId: string; exclusiveUntil: number; amount?: number; item?: { definitionId: string } }
 type Animated = ActorRig;
 export class Scene {
@@ -30,7 +31,9 @@ export class Scene {
   ambient: THREE.HemisphereLight;
   labels = new Map<string, HTMLDivElement>();
   focus = new THREE.Vector3(0, 0, 10);
-  zoom = 14;
+  zoom = presentation.camera.defaultHalfHeight;
+  buildingOccluders: { meshes: THREE.Mesh[]; bounds: THREE.Box3; opacity: number }[] = [];
+  occlusionRay = new THREE.Raycaster();
   viewWidth = 1;
   viewHeight = 1;
   selected?: string;
@@ -39,6 +42,7 @@ export class Scene {
   showIds = false;
   time = 0;
   frameInterval = 0;
+  softwareRenderer = false;
   serverNow = Date.now();
   marker: THREE.Mesh;
   targetMarker: THREE.Mesh;
@@ -69,10 +73,18 @@ export class Scene {
     const rendererExtension = context.getExtension('WEBGL_debug_renderer_info');
     const rendererName = rendererExtension ? String(context.getParameter(rendererExtension.UNMASKED_RENDERER_WEBGL)) : '';
     this.renderer.domElement.dataset.renderer = rendererName;
-    if (/swiftshader|llvmpipe|software|basic render/i.test(rendererName)) {
+    const softwareRenderer = /swiftshader|llvmpipe|software|basic render/i.test(rendererName);
+    this.softwareRenderer = softwareRenderer;
+    const legacyIntegratedRenderer = /Radeon R5 Graphics/i.test(rendererName);
+    if (softwareRenderer) {
       this.renderer.shadowMap.enabled = false;
-      this.renderer.setPixelRatio(0.65);
+      this.renderer.setPixelRatio(0.5);
       this.materials.bumpEnabled = false;
+      this.frameInterval = 100;
+    } else if (legacyIntegratedRenderer) {
+      // Keep HTML labels crisp and the same close composition on older GPUs.
+      // Leave CPU time for input, networking and a second running client.
+      this.renderer.setPixelRatio(Math.min(devicePixelRatio, 0.85));
       this.frameInterval = 1000 / 20;
     }
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -89,16 +101,18 @@ export class Scene {
     this.scene.fog = new THREE.Fog(0xc5d6d8, 80, 170);
     this.ambient = new THREE.HemisphereLight(0xdfeaff, 0x73825c, 2.2); this.scene.add(this.ambient);
     this.sun = new THREE.DirectionalLight(0xffead0, 3); this.sun.position.set(30, 50, 20); this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048); Object.assign(this.sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45 }); this.sun.shadow.bias = -0.0005; this.scene.add(this.sun, this.sun.target);
+    this.sun.shadow.mapSize.set(legacyIntegratedRenderer ? 1024 : 2048, legacyIntegratedRenderer ? 1024 : 2048); Object.assign(this.sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22 }); this.sun.shadow.bias = -0.0005; this.scene.add(this.sun, this.sun.target);
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), this.materials.terrain());
     this.ground.rotation.x = -Math.PI / 2; this.ground.receiveShadow = true; this.ground.userData = { kind: 'ground' }; this.scene.add(this.ground);
-    this.platform(0, 0, 46, 46, 0xb9baa1, 0.02);
-    this.environment.ground(0, 0, 6, 46, 0xb2b6a3, 0.05, 'street');
-    this.environment.ground(0, 0, 46, 6, 0xb2b6a3, 0.05, 'street');
+    this.environment.ground(0, 0, 19, 19, 0xc0bba6, 0.02, 'street');
+    this.environment.ground(0, 0, 4.5, 46, 0xaaa997, 0.05, 'street');
+    this.environment.ground(0, 0, 46, 4.5, 0xaaa997, 0.05, 'street');
+    for (const npc of npcs) this.environment.ground(npc.x, npc.z, 4.5, 4.5, 0xb1ac95, 0.04, 'street');
+    for (const building of obstacles.filter(o => o.kind === 'building')) this.environment.ground(building.x, building.z, building.width + 2, building.depth + 2, 0xb4ae98, 0.03, 'street');
     for (const obstacle of obstacles) {
       if (obstacle.kind === 'building') this.house(obstacle.x, obstacle.z, obstacle.width, obstacle.depth);
       if (obstacle.kind === 'tree') this.tree(obstacle.x, obstacle.z);
-      if (obstacle.id.startsWith('ruin-')) this.environment.ruin(obstacle.id, obstacle.x, obstacle.z, obstacle.width, obstacle.depth);
+      if (obstacle.id.startsWith('ruin-') || obstacle.id.startsWith('farm-landmark-ruin')) this.environment.ruin(obstacle.id, obstacle.x, obstacle.z, obstacle.width, obstacle.depth);
       if (obstacle.kind === 'rock') this.environment.rock(obstacle.x, obstacle.z, obstacle.width, obstacle.depth);
     }
 
@@ -139,29 +153,67 @@ export class Scene {
     this.contactShadows.frustumCulled = false; this.scene.add(this.contactShadows);
     this.batchScenery();
     this.resizeObserver = new ResizeObserver(() => this.resize()); this.resizeObserver.observe(canvasHost); this.resize();
-    this.renderer.domElement.addEventListener('wheel', event => { event.preventDefault(); this.zoom = THREE.MathUtils.clamp(this.zoom + event.deltaY * 0.015, 12, 26); this.resize(); }, { passive: false });
+    this.renderer.domElement.addEventListener('wheel', event => { event.preventDefault(); this.zoom = THREE.MathUtils.clamp(this.zoom + event.deltaY * presentation.camera.wheelSensitivity, presentation.camera.minHalfHeight, presentation.camera.maxHalfHeight); this.resize(); }, { passive: false });
   }
   mesh(geometry: THREE.BufferGeometry, color: number): THREE.Mesh { const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color, roughness: 0.85 })); mesh.castShadow = true; mesh.receiveShadow = true; return mesh; }
   batchScenery(): void {
     this.scene.updateMatrixWorld(true);
-    const batches = new Map<string, { geometries: THREE.BufferGeometry[]; material: THREE.MeshStandardMaterial; shadow: boolean }>();
+    const batches = new Map<string, { geometries: THREE.BufferGeometry[]; material: THREE.MeshStandardMaterial; shadow: boolean; building?: string }>();
+    const buildings = new Map<string, THREE.Mesh[]>();
     const originals: THREE.Mesh[] = [];
     this.scene.traverse(object => {
       if (!(object instanceof THREE.Mesh) || object.userData.animatedGlow || object === this.ground || object === this.crystal || object === this.marker || object instanceof THREE.InstancedMesh || !(object.material instanceof THREE.MeshStandardMaterial)) return;
       let parent: THREE.Object3D | null = object;
-      while (parent) { if (parent.userData.kind === 'npc') return; parent = parent.parent; }
-      const key = `${object.material.color.getHex()}-${object.castShadow}-${object.material.map?.uuid ?? "flat"}-${object.material.roughness}-${object.material.metalness}-${object.material.emissive.getHex()}`;
+      let building: string | undefined;
+      while (parent) { if (parent.userData.kind === 'npc') return; if (parent.userData.occludingBuilding) building = parent.uuid; parent = parent.parent; }
+      const position = new THREE.Vector3().setFromMatrixPosition(object.matrixWorld);
+      // Spatial batches can be culled. A single forest-sized mesh submits
+      // distant geometry to the camera and shadow pass on every frame.
+      const region = building ?? `${Math.floor(position.x / 16)},${Math.floor(position.z / 16)}`;
+      const key = `${region}-${object.material.color.getHex()}-${object.castShadow}-${object.material.map?.uuid ?? "flat"}-${object.material.alphaMap?.uuid ?? ''}-${object.material.transparent}-${object.material.depthWrite}-${object.material.roughness}-${object.material.metalness}-${object.material.emissive.getHex()}`;
       let batch = batches.get(key);
-      if (!batch) { batch = { geometries: [], material: object.material.clone(), shadow: object.castShadow }; batch.material.userData.shared = false; batches.set(key, batch); }
+      if (!batch) { batch = { geometries: [], material: object.material.clone(), shadow: object.castShadow, building }; batch.material.userData.shared = false; batches.set(key, batch); }
       const geometry = object.geometry.index ? object.geometry.toNonIndexed() : object.geometry.clone();
       geometry.applyMatrix4(object.matrixWorld); batch.geometries.push(geometry); originals.push(object);
     });
     for (const batch of batches.values()) {
       const geometry = mergeGeometries(batch.geometries); if (!geometry) continue;
       const mesh = new THREE.Mesh(geometry, batch.material); mesh.castShadow = batch.shadow; mesh.receiveShadow = true; this.scene.add(mesh);
+      if (batch.building) { const entries = buildings.get(batch.building) ?? []; entries.push(mesh); buildings.set(batch.building, entries); }
       batch.geometries.forEach(g => g.dispose());
     }
     for (const mesh of originals) { mesh.removeFromParent(); mesh.geometry.dispose(); if (!(mesh.material as THREE.Material).userData.shared) (mesh.material as THREE.Material).dispose(); }
+    // Animated windows remain outside batches, but fade with the same building.
+    this.scene.traverse(object => {
+      if (!(object instanceof THREE.Mesh) || !object.userData.animatedGlow) return;
+      let parent = object.parent;
+      while (parent) { if (parent.userData.occludingBuilding) { buildings.get(parent.uuid)?.push(object); break; } parent = parent.parent; }
+    });
+    this.scene.updateMatrixWorld(true);
+    for (const meshes of buildings.values()) {
+      const bounds = new THREE.Box3(); for (const mesh of meshes) bounds.union(new THREE.Box3().setFromObject(mesh));
+      this.buildingOccluders.push({ meshes, bounds, opacity: 1 });
+    }
+  }
+  updateOcclusion(self?: Animated, target?: Animated): void {
+    const subjects = [self, target].filter((actor): actor is Animated => !!actor && actor.deadAt === undefined);
+    for (const building of this.buildingOccluders) {
+      const obscured = subjects.some(actor => [0.35, 1.25, 2].some(height => {
+        const point = actor.group.position.clone(); point.y += height;
+        const projected = point.clone().project(this.camera);
+        this.occlusionRay.setFromCamera(new THREE.Vector2(projected.x, projected.y), this.camera);
+        const intersection = this.occlusionRay.ray.intersectBox(building.bounds, new THREE.Vector3());
+        return !!intersection && this.occlusionRay.ray.origin.distanceTo(intersection) < this.occlusionRay.ray.origin.distanceTo(point);
+      }));
+      const opacity = obscured ? presentation.buildingOccludedOpacity : 1;
+      if (building.opacity === opacity) continue;
+      building.opacity = opacity;
+      for (const mesh of building.meshes) {
+        const material = mesh.material as THREE.MeshStandardMaterial;
+        material.transparent = obscured; material.opacity = opacity; material.depthWrite = !obscured; material.needsUpdate = true;
+        mesh.castShadow = !obscured;
+      }
+    }
   }
   platform(x: number, z: number, width: number, depth: number, color: number, y: number): void {
     const surface = width === 46 ? 'street' : width > 100 || depth > 100 ? 'dirt' : x > 30 || z < -40 ? 'rock' : 'grass';
@@ -195,6 +247,7 @@ export class Scene {
       actor.lastHp = entity.hp;
       if (entity.animation !== actor.animation) actor.actionAt = performance.now();
       actor.target = { x: entity.x, z: entity.z }; actor.animation = entity.animation;
+      actor.group.userData.targetId = entity.targetId;
       if (entity.classId && entity.equipment) this.actorFactory.equip(actor, entity.equipment);
       const label = this.labels.get(entity.id)!;
       const def = entity.definitionId ? monsters.find(m => m.id === entity.definitionId) : undefined;
@@ -243,7 +296,8 @@ export class Scene {
     if (!this.running) return;
     requestAnimationFrame(this.animate);
     const now = performance.now();
-    if (now - this.time < this.frameInterval) return;
+    const interval = this.softwareRenderer && !document.hasFocus() ? Math.max(500, this.frameInterval) : this.frameInterval;
+    if (now - this.time < interval) return;
     if (this.renderedFrames) { this.frameTimes.push(now - this.time); if (this.frameTimes.length > 300) this.frameTimes.shift(); }
     const dt = Math.min(0.05, (now - this.time) / 1000 || 0.016); this.time = now;
     for (const actor of this.actors.values()) {
@@ -252,6 +306,10 @@ export class Scene {
       if (displacement > 15) actor.group.position.set(actor.target.x, 0, actor.target.z);
       else { actor.group.position.x += dx * (1 - Math.exp(-dt * 14)); actor.group.position.z += dz * (1 - Math.exp(-dt * 14)); }
       if (displacement > 0.02) actor.group.rotation.y = Math.atan2(dx, dz);
+      else if (actor.animation !== 'walk') {
+        const facing = this.actors.get(actor.group.userData.targetId);
+        if (facing && facing.deadAt === undefined) actor.group.rotation.y = Math.atan2(facing.group.position.x - actor.group.position.x, facing.group.position.z - actor.group.position.z);
+      }
       this.actorFactory.animate(actor, now, dt);
     }
     const self = this.actors.get(this.selfId);
@@ -259,7 +317,10 @@ export class Scene {
     this.targetMarker.visible = !!target && target.deadAt === undefined;
     if (target) this.targetMarker.position.set(target.group.position.x, 0.075, target.group.position.z);
     if (self) this.focus.lerp(self.group.position, 1 - Math.exp(-dt * 8));
-    this.camera.position.copy(this.focus).add(new THREE.Vector3(35, 45, 35)); this.camera.lookAt(this.focus);
+    const offset = presentation.camera.offset;
+    this.camera.position.copy(this.focus).add(new THREE.Vector3(offset.x, offset.y, offset.z)); this.camera.lookAt(this.focus);
+    this.camera.updateMatrixWorld();
+    this.updateOcclusion(self, target);
     this.sun.target.position.copy(this.focus); this.sun.position.copy(this.focus).add(new THREE.Vector3(30, 50, 20));
     const day = (Math.sin((this.serverNow + now % 100) / balance.dayNightCycleDuration * Math.PI * 2) + 1) / 2;
     this.daylight = day;
@@ -330,6 +391,9 @@ export class Scene {
       ready: this.renderedFrames > 0, renderedFrames: this.renderedFrames,
       renderer: this.renderer.domElement.dataset.renderer, shadows: this.renderer.shadowMap.enabled,
       zoom: this.zoom, daylight: this.daylight, sun: this.sun.intensity, ambient: this.ambient.intensity,
+      cameraElevationDegrees: Math.atan2(presentation.camera.offset.y, Math.hypot(presentation.camera.offset.x, presentation.camera.offset.z)) * 180 / Math.PI,
+      characterScreenHeight: (() => { const actor = this.actors.get(this.selfId); return actor ? Math.abs(this.project(actor.group.position, 2.2).y - this.project(actor.group.position, 0).y) : 0; })(),
+      fadedBuildings: this.buildingOccluders.filter(building => building.opacity < 1).length,
       drawCalls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles,
       memory: { ...this.renderer.info.memory },
       frameTimes: [...this.frameTimes], renderTimes: [...this.renderTimes], visualEvents: { ...this.visualEvents }, presentedVisuals: { ...this.presentedVisuals },

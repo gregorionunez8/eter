@@ -118,19 +118,22 @@ test('different sized inventory objects collide, hybrid stats work and affinity 
 test('NPC buying, selling, repairs, potions and Sanctum persist and require proximity', () => {
   const { game, ca, store, advance } = setup();
   game.action(ca.id, { type: 'buy', npcId: 'lyra', itemId: 'hp-potion' }); assert.equal(ca.crowns, 50);
-  Object.assign(ca, { x: 12, z: 7 }); game.action(ca.id, { type: 'buy', npcId: 'lyra', itemId: 'hp-potion' }); assert.equal(ca.crowns, 35);
+  const near = (id: string) => { const npc = npcs.find(n => n.id === id)!; Object.assign(ca, { x: npc.x, z: npc.z + 2 }); };
+  near('lyra'); game.action(ca.id, { type: 'buy', npcId: 'lyra', itemId: 'hp-potion' }); assert.equal(ca.crowns, 35);
   ca.hp = 10; game.action(ca.id, { type: 'potion', kind: 'hp' }); assert.equal(ca.hp, 110);
   game.action(ca.id, { type: 'potion', kind: 'hp' }); assert.equal(ca.hp, 110); advance(1001);
-  const weapon = ca.equipment.weapon!; weapon.durability = 90; Object.assign(ca, { x: -12, z: 6 });
+  const weapon = ca.equipment.weapon!; weapon.durability = 90; near('brom');
   game.action(ca.id, { type: 'repair' }); assert.equal(weapon.durability, 100); assert.equal(ca.crowns, 25);
-  Object.assign(ca, { x: -12, z: -5 }); const item = ca.inventory[0];
+  near('orin'); const item = ca.inventory[0];
   game.action(ca.id, { type: 'store', itemId: item.id, direction: 'deposit' }); assert.equal(ca.sanctum.length, 1);
   assert.equal(store.character(ca.id, ca.accountId)?.sanctum[0].id, item.id);
   game.action(ca.id, { type: 'store', itemId: item.id, direction: 'withdraw' }); assert.equal(ca.sanctum.length, 0); assert.ok(ca.inventory.some(i => i.id === item.id));
-  Object.assign(ca, { x: 12, z: 7 }); game.action(ca.id, { type: 'sell', npcId: 'lyra', itemId: item.id }); assert.equal(ca.crowns, 29); store.close();
+  near('lyra'); game.action(ca.id, { type: 'sell', npcId: 'lyra', itemId: item.id }); assert.equal(ca.crowns, 29); store.close();
 });
 test('every class has four usable skills with validated mana and cooldown', () => {
   const { game, ca, pa, store, advance } = setup(() => 0.5);
+  // Isolate casting from incidental level-ups when an area skill kills a dense spot.
+  const isolated = [...game.creatures.values()][0]; game.creatures.clear(); game.creatures.set(isolated.id, isolated);
   for (const classId of ['VANGUARD', 'ARCANIST', 'RANGER'] as ClassId[]) {
     ca.classId = classId; ca.stats = { ...classes[classId].stats, energy: 100 }; ca.unlockedSkills = skills.filter(s => s.classId === classId).map(s => s.id);
     for (const skill of skills.filter(s => s.classId === classId)) {
@@ -144,6 +147,29 @@ test('every class has four usable skills with validated mana and cooldown', () =
     }
   }
   store.close();
+});
+
+test('all three classes automatically approach, stop within their range and expose their actual combat target', () => {
+  for (const classId of ['VANGUARD', 'ARCANIST', 'RANGER'] as ClassId[]) {
+    const { game, ca, pa, store, advance } = setup(() => 0);
+    try {
+      ca.classId = classId; ca.stats = { ...classes[classId].stats }; ca.hp = formulas.maxHp(ca.stats);
+      Object.assign(ca, { x: 0, z: 28 });
+      const monster = [...game.creatures.values()][0]; game.creatures.clear(); game.creatures.set(monster.id, monster);
+      Object.assign(monster, { x: 0, z: 44, hp: 10000, home: { x: 0, z: 44 } });
+      game.action(ca.id, { type: 'attack', targetId: monster.id });
+      for (let i = 0; i < 50 && !pa.attackAt; i++) advance(100);
+      assert.ok(pa.attackAt > 0, classId);
+      const separation = Math.hypot(ca.x - monster.x, ca.z - monster.z);
+      assert.ok(separation <= classes[classId].range && separation > classes[classId].range - 1, `${classId}: ${separation}`);
+      assert.equal(pa.path.length, 0);
+      const state = game.snapshot(pa) as { players: { id: string; targetId?: string }[] };
+      assert.equal(state.players.find(p => p.id === ca.id)!.targetId, monster.id);
+      const stopped = { x: ca.x, z: ca.z }; advance(100);
+      assert.deepEqual({ x: ca.x, z: ca.z }, stopped);
+      game.action(ca.id, { type: 'stop' }); assert.equal(pa.targetId, undefined);
+    } finally { store.close(); }
+  }
 });
 test('aggro attacks outside safe zone; safe city prevents attacks; death conserves resources', () => {
   const { game, ca, pa, store, advance } = setup(() => 0.5);

@@ -1,0 +1,61 @@
+/* Original Éter frame, shared by instruments, bags and town services. */
+.entry { background: linear-gradient(90deg, #0a161b44, #0a161b66 48%, #0a161bea), url('/art/aurelia-gameplay.png') center/cover; }
+.entry-art h1 { font-size: 84px; letter-spacing: 13px; }
+.entry-art p { font-size: 20px; }
+.selection { background: linear-gradient(#101a1bc9, #101a1beb), url('/art/aurelia-gameplay.png') center/cover; }
+@media (max-width: 850px) { .entry-art h1 { font-size: 58px; letter-spacing: 8px; } }
+.guide { display: none; }
+.game-header { top: 12px; left: 16px; pointer-events: none; }
+.game-header .top-tools { pointer-events: auto; }
+.brand { font-size: 22px; letter-spacing: 4px; text-shadow: 0 2px 4px #000; }
+.brand span { font-size: 11px; letter-spacing: .5px; }
+.minimap-box { width: 162px; padding: 5px; }
+.minimap-box canvas { width: 150px; height: 150px; }
+.hud {
+  left: 50%; right: auto; width: min(1100px, calc(100% - 16px)); transform: translateX(-50%);
+  padding: 9px 14px 22px; min-height: 100px; gap: 12px;
+  border: 1px solid #b49b68; border-top: 3px solid #a18b62;
+  background: linear-gradient(#394342fa 0, #1d282bfa 12%, #111b20fc 100%);
+  box-shadow: inset 0 0 0 3px #111b2099, 0 -3px 18px #0008;
+}
+.vitals { width: 290px; }
+.portrait { border: 2px solid #9e875f; background: radial-gradient(#62695a, #182327); }
+.bar { height: 20px; border: 1px solid #ac95636b; box-shadow: inset 0 2px 5px #0008; }
+.bar b { line-height: 18px; font-size: 11px; text-shadow: 0 1px #000; }
+.hp span { background: linear-gradient(#af6254, #7d302d); }
+.mana span { background: linear-gradient(#618faf, #304d83); }
+.skills { gap: 3px; }
+.skill { border-color: #b29b6777; box-shadow: inset 0 0 0 2px #111b2055; }
+.skill.normal { border-color: #bdab79; }
+.skill.active { border-color: #f5dea3; box-shadow: inset 0 0 0 2px #b5985544, 0 0 8px #ddbf6166; }
+.wallet { font-size: 12px; }
+.hud-right button { padding: 5px 9px; }
+.experience { height: 13px; }
+.experience b { font-size: 9px; line-height: 12px; }
+#target-info { display: none; pointer-events: none; }
+#target-info.has-target {
+  display: block; top: 18px; left: 50%; transform: translateX(-50%); width: 240px;
+  padding: 8px 12px; border: 1px solid #b9a06b88; background: linear-gradient(#2b3235ec, #131f25ef);
+  text-align: center; box-shadow: inset 0 0 0 2px #0003, 0 3px 14px #0004;
+}
+#target-info strong { display: block; color: #ead5a7; font: bold 13px Georgia; }
+#target-info small { display: block; margin: 4px 0 6px; color: #c7b08a; font: 10px Arial; }
+#target-info.in-range small { color: #b9d0aa; }
+.target-health { position: relative; height: 12px; background: #080f15; border: 1px solid #8e735d88; }
+.target-health i { display: block; height: 100%; background: linear-gradient(#a65c47, #642c27); }
+.target-health b { position: absolute; inset: 0; font: 9px/10px Arial; color: #f6dfc0; }
+.world-label { font-size: 12px; font-weight: 600; text-shadow: -1px -1px 2px #000, 1px 1px 3px #000; }
+.player-label { color: #efe6c9; }
+.monster-label { color: #e4d7b4; }
+.monster-label.selected { color: #fff0b2; }
+.monster-label.selected .entity-hp { width: 64px; height: 4px; opacity: 1; }
+.loot-label { font-size: 12px; padding: 3px 8px; border-color: #b6a069aa; }
+.ether-label { color: #c1ffff; border-color: #9ce6e6; }
+.panel { padding: 15px; border-color: #b79b6388; box-shadow: inset 0 0 0 3px #0003, 0 8px 30px #0009; }
+.inventory-grid { background-color: #0c161b; background-image: linear-gradient(#b39a6355 1px, transparent 1px), linear-gradient(90deg, #b39a6355 1px, transparent 1px); }
+.item { background: radial-gradient(#71808366, #15252ae0); border-color: #b39a6377; }
+.item .game-icon { filter: drop-shadow(1px 2px 2px #000); }
+.equipment button { background: radial-gradient(#5b645b55, #0c161b); border-color: #ab925d77; }
+.equipment button small { color: #dfc68b; font-size: 9px; }
+@media (max-width: 1150px) { .vitals { width: 235px; } .skill { width: 55px; } .hud { gap: 8px; } }
+@media (max-width: 850px) { .hud { left: 0; right: 0; width: 100%; transform: none; } .vitals { width: 180px; } .skill { width: 46px; } .minimap-box { width: 130px; } .minimap-box canvas { width: 118px; height: 118px; } }

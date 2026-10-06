@@ -9,6 +9,7 @@ export class LootArt {
   constructor(readonly materials: MaterialLibrary) {}
   create(kind: string, definitionId?: string): THREE.Group {
     const group = new THREE.Group();
+    group.scale.setScalar(1.2);
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.4, 24), new THREE.MeshBasicMaterial({ color: 0x182120, transparent: true, opacity: 0.22, depthWrite: false }));
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.065; group.add(shadow);
     if (kind === 'crowns') {

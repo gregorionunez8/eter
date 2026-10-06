@@ -1,5 +1,6 @@
 import './style.css';
 import './overhaul.css';
+import './classic.css';
 import { icon, paperDoll } from './icons';
 import { tooltip } from './item-ui';
 import { CharacterPreview } from './preview';
@@ -9,7 +10,7 @@ import { GameAudio } from './audio';
 import type { EffectEvent } from './effects';
 import { balance, classes, equipmentSlots, formulas, items, monsters, npcs, skills, spots, type ClassId, type Slot } from '../shared/content';
 import type { Character, ItemInstance, Point } from '../shared/model';
-import { distance, world, obstacles } from '../shared/world';
+import { distance, clearSegment, world, obstacles } from '../shared/world';
 import type { Action } from '../shared/protocol';
 import { Scene, type VisibleEntity, type VisibleLoot } from './scene';
 
@@ -19,11 +20,13 @@ interface Snapshot { type: 'state'; now: number; self: Character; cooldowns: Rec
 let account: Account | undefined, scene: Scene | undefined, ws: WebSocket | undefined, snapshot: Snapshot | undefined;
 let modal = '', npcId = '', selectedSkill = '', pendingPickup: string | undefined, pendingNpc: string | undefined;
 let inventorySignature = '', panelSignature = '', muted = localStorage.getItem('eter-muted') !== 'false';
+let inventoryDragging = false;
+let networkDiagnostics = { receivedStates: 0, ignoredStates: 0, lastStateAt: 0, lastIgnore: '', socketStatus: 'idle' };
 const gameAudio = new GameAudio(); gameAudio.setMuted(muted);
 let preview: CharacterPreview | undefined;
 // Opt-in read-only diagnostics used by production acceptance tests and local profiling.
 if (new URLSearchParams(location.search).has('diagnostics')) {
-  Object.defineProperty(window, 'eterDiagnostics', { value: (point?: Point) => scene?.diagnostics(point) });
+  Object.defineProperty(window, 'eterDiagnostics', { value: (point?: Point) => { const visual = scene?.diagnostics(point); return visual && { ...visual, network: { ...networkDiagnostics, readyState: ws?.readyState }, visibility: document.visibilityState }; } });
 }
 const slotNames: Record<Slot, string> = { helmet: 'Casco', chest: 'Pechera', pants: 'Pantalón', gloves: 'Guantes', boots: 'Botas', weapon: 'Arma', offhand: 'Escudo / secundaria', wings: 'Alas', necklace: 'Collar', ring1: 'Anillo I', ring2: 'Anillo II' };
 const statNames = { strength: 'Fuerza', agility: 'Agilidad', vitality: 'Vitalidad', energy: 'Energía' };
@@ -70,11 +73,12 @@ function authScreen(): void {
   });
 }
 async function charactersScreen(): Promise<void> {
-  await loadCharacterArt();
   gameAudio.suspendAmbience();
   preview?.destroy(); preview = undefined;
   scene?.destroy(); scene = undefined; ws?.close(); ws = undefined; snapshot = undefined;
   const result = await api<{ account: Account; characters: Character[] }>('/api/me'); account = result.account;
+  // Anonymous visitors can see access immediately, without downloading character models.
+  await loadCharacterArt();
   app.innerHTML = `<section class="selection"><header><div><span class="eyebrow">TU HISTORIA COMIENZA AQUÍ</span><h1>ÉTER</h1></div><button id="logout" class="secondary">Cerrar sesión</button></header><div class="selection-columns"><section class="character-stage"><div id="character-preview"></div><div id="preview-caption"></div><button id="enter-world" disabled>Entrar al mundo</button></section><section><h2>Tus personajes</h2><div class="character-list">${result.characters.length ? result.characters.map(c => `<button class="character-card" data-character="${c.id}"><span class="class-emblem">${icon(c.classId)}</span><span><strong>${htmlText(c.name)}</strong><small>${classes[c.classId].name} · Nivel ${c.level} · ${c.resets} resets</small></span><span>Entrar →</span></button>`).join('') : '<p>No tenés personajes todavía. Elegí tu camino.</p>'}</div></section><section class="create-card"><span class="eyebrow">NUEVO PERSONAJE</span><h2>Elegí tu camino</h2><form id="create"><label>Nombre<input name="name" required minlength="3" maxlength="20" autocomplete="off"></label><div class="class-options">${Object.entries(classes).map(([id, c], i) => `<label class="class-choice"><input type="radio" name="classId" value="${id}" ${i === 0 ? 'checked' : ''}><strong>${c.name}</strong><small>${id === 'VANGUARD' ? 'Guerrero · Fuerza y resistencia' : id === 'ARCANIST' ? 'Mago · Dominio del Éter' : 'Arquera · Agilidad y precisión'}</small></label>`).join('')}</div><button type="submit">Crear personaje</button><p id="error" role="alert"></p></form></section></div></section>`;
   document.querySelector('#logout')!.addEventListener('click', () => { void logout(); });
   let selected: Character | undefined = result.characters[0];
@@ -102,21 +106,31 @@ async function enter(characterId: string): Promise<void> {
   Object.assign(world, content.world); obstacles.splice(0, obstacles.length, ...(content.obstacles as typeof obstacles));
   for (const [local, remote] of [[items, content.items], [monsters, content.monsters], [npcs, content.npcs], [skills, content.skills], [spots, content.spots]] as [unknown[], unknown[]][]) local.splice(0, local.length, ...remote);
   modal = ''; npcId = ''; selectedSkill = ''; pendingPickup = undefined; pendingNpc = undefined; inventorySignature = ''; panelSignature = '';
+  inventoryDragging = false;
   app.innerHTML = `<section class="game"><div id="viewport"></div><div id="labels"></div><header class="game-header"><div class="brand">ÉTER <span id="location">Aurelia</span></div><div class="top-tools"><button id="names-toggle" class="small">Loot: ON</button><button id="options-button" class="small">Opciones</button><button id="characters-button" class="small">Personajes</button>${account?.admin ? '<a href="/admin" target="_blank" class="admin-link">Admin ↗</a>' : ''}</div></header><aside class="minimap-box"><canvas id="minimap" width="180" height="180"></canvas><div id="coordinates"></div><small>N ↑ · Rueda: zoom</small></aside><div class="guide"><span>CLIC PARA CAMINAR</span>Enemigo: atacar · Objeto: recoger · NPC: conversar</div><aside id="target-info"></aside><div id="notices" role="status"></div><div id="panel" class="panel hidden"></div><footer class="hud"><div class="vitals"><div class="portrait" id="class-icon">⚔</div><div class="vital-bars"><strong id="character-name"></strong><div class="bar hp"><span id="hp-fill"></span><b id="hp-label"></b></div><div class="bar mana"><span id="mana-fill"></span><b id="mana-label"></b></div></div></div><div class="skills" id="skills"></div><div class="hud-right"><div class="wallet"><span id="crowns"></span><span id="ether"></span></div><div class="hud-buttons"><button id="inventory-button">Inventario <kbd>I</kbd></button><button id="stats-button">Stats <kbd>C</kbd></button></div><div class="potions"><button id="hp-potion">Vida <kbd>Q</kbd> <span></span></button><button id="mana-potion">Mana <kbd>W</kbd> <span></span></button></div></div><div class="experience"><span id="xp-fill"></span><b id="xp-label"></b></div></footer></section>`;
   scene = new Scene(document.querySelector('#viewport')!, document.querySelector('#labels')!);
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?characterId=${encodeURIComponent(characterId)}`);
   const connection = ws, activeScene = scene;
+  networkDiagnostics = { receivedStates: 0, ignoredStates: 0, lastStateAt: 0, lastIgnore: '', socketStatus: 'connecting' };
+  ws.addEventListener('open', () => { if (ws === connection) networkDiagnostics.socketStatus = 'open'; });
   ws.addEventListener('message', event => {
-    if (ws !== connection || scene !== activeScene) return;
+    if (ws !== connection || scene !== activeScene) { networkDiagnostics.ignoredStates++; networkDiagnostics.lastIgnore = ws !== connection ? 'old socket' : 'old scene'; return; }
     const data = JSON.parse(event.data) as Snapshot & EffectEvent & { message?: string; admin: boolean };
     if (data.type === 'state') {
+      networkDiagnostics.receivedStates++; networkDiagnostics.lastStateAt = data.now;
       snapshot = data; updateHud(); scene?.sync(data.players, data.monsters, data.loot, data.self.id, data.now);
       if (pendingPickup) { const drop = data.loot.find(d => d.id === pendingPickup); if (!drop) pendingPickup = undefined; else if (distance(data.self, drop) < balance.pickupRange) { send({ type: 'stop' }); send({ type: 'pickup', lootId: drop.id }); pendingPickup = undefined; } }
       if (pendingNpc) { const npc = npcs.find(n => n.id === pendingNpc)!; if (distance(data.self, npc) < 4.5) { send({ type: 'stop' }); npcId = pendingNpc; pendingNpc = undefined; openPanel('npc'); } }
     } else if ((data as { type: string }).type === 'notice') notice(data.message!);
-    else if ((data as { type: string }).type === 'effect') { scene?.effect(data); if (!snapshot || distance(snapshot.self, data) < 30) sound(data.kind, data.lootKind); }
+    else if ((data as { type: string }).type === 'effect') {
+      scene?.effect(data);
+      if (!snapshot || distance(snapshot.self, data) < 30) {
+        const source = snapshot?.players.find(player => player.id === data.sourceId);
+        sound(source?.classId === 'RANGER' && data.kind === 'hit' ? 'bow' : data.kind, data.lootKind);
+      }
+    }
   });
-  ws.addEventListener('close', () => { if (ws === connection && scene === activeScene) notice('Conexión cerrada. Volvé a Personajes para reconectar.'); });
+  ws.addEventListener('close', () => { if (ws === connection && scene === activeScene) { networkDiagnostics.socketStatus = 'closed'; notice('Conexión cerrada. Volvé a Personajes para reconectar.'); } });
   ws.addEventListener('error', () => { if (ws === connection) notice('No se pudo conectar al mundo.'); });
   document.querySelector('#characters-button')!.addEventListener('click', () => { void charactersScreen(); });
   document.querySelector('#inventory-button')!.addEventListener('click', () => openPanel('inventory'));
@@ -128,6 +142,7 @@ async function enter(characterId: string): Promise<void> {
   function interact(hit: { kind: string; id?: string; point: Point }): void {
     if (!snapshot) return;
     pendingNpc = undefined; pendingPickup = undefined;
+    if (hit.kind !== 'monster') scene!.selected = undefined;
     if (hit.kind === 'monster') { scene!.selected = hit.id; if (selectedSkill) executeSkill(selectedSkill, hit.id); else send({ type: 'attack', targetId: hit.id! }); }
     else if (hit.kind === 'loot') { const drop = snapshot.loot.find(d => d.id === hit.id)!; if (distance(snapshot.self, drop) < balance.pickupRange) { send({ type: 'stop' }); send({ type: 'pickup', lootId: drop.id }); } else { pendingPickup = drop.id; send({ type: 'move', x: drop.x, z: drop.z }); } }
     else if (hit.kind === 'npc') { const npc = npcs.find(n => n.id === hit.id)!; if (distance(snapshot.self, npc) < 4.5) { send({ type: 'stop' }); npcId = npc.id; openPanel('npc'); } else { pendingNpc = npc.id; send({ type: 'move', x: npc.x, z: npc.z + 2 }); } }
@@ -166,7 +181,13 @@ async function enter(characterId: string): Promise<void> {
   });
 }
 function toggleNames(): void { if (!scene) return; scene.showLootNames = !scene.showLootNames; document.querySelector('#names-toggle')!.textContent = `Loot: ${scene.showLootNames ? 'ON' : 'OFF'}`; }
-function executeSkill(skillId: string, targetId = scene?.selected, point?: Point): void { selectedSkill = skillId; send({ type: 'skill', skillId, targetId, point }); }
+function executeSkill(skillId: string, targetId = scene?.selected, point?: Point): void {
+  const skill = skills.find(s => s.id === skillId);
+  // Instant support/movement skills complement the current attack. They must
+  // not leave the next enemy/ground click trapped in a cooldown-only mode.
+  if (skill && !['buff', 'mobility', 'heal', 'blink'].includes(skill.kind)) selectedSkill = skillId;
+  send({ type: 'skill', skillId, targetId, point });
+}
 function updateHud(): void {
   if (!snapshot) return; const c = snapshot.self, maxHp = formulas.maxHp(c.stats), maxMana = formulas.maxMana(c.stats);
   document.querySelector('#character-name')!.textContent = `${c.name} · ${classes[c.classId].name} · Nivel ${c.level}`;
@@ -187,13 +208,25 @@ function updateHud(): void {
     skillHost.querySelector('.normal')!.addEventListener('click', () => { selectedSkill = ''; if (scene?.selected) send({ type: 'attack', targetId: scene.selected }); });
   }
   skillHost.querySelectorAll<HTMLElement>('[data-skill]').forEach(button => { const id = button.dataset.skill!, remaining = Math.max(0, (snapshot!.cooldowns[id] ?? 0) - snapshot!.now); button.classList.toggle('active', selectedSkill === id); button.classList.toggle('cooling', remaining > 0); const skill = skills.find(s => s.id === id)!; button.classList.toggle('no-mana', c.mana < skill.mana); button.style.setProperty('--cooldown', (remaining / skill.cooldownMs * 100) + '%'); (button as HTMLButtonElement).disabled = remaining > 0 || c.mana < skill.mana; button.querySelector('.cooldown')!.textContent = remaining > 0 ? `${(remaining / 1000).toFixed(1)}s` : ''; });
+  skillHost.querySelector('.normal')!.classList.toggle('active', !selectedSkill);
   const target = snapshot.monsters.find(m => m.id === scene?.selected && m.hp > 0), targetHost = document.querySelector('#target-info')!;
-  targetHost.textContent = target ? `${monsters.find(m => m.id === target.definitionId)!.name} · HP ${Math.ceil(target.hp)}` : '';
+  targetHost.classList.toggle('has-target', !!target);
+  if (target) {
+    if (!targetHost.children.length) targetHost.innerHTML = '<strong></strong><small></small><div class="target-health"><i></i><b></b></div>';
+    const definition = monsters.find(m => m.id === target.definitionId)!;
+    const range = skills.find(s => s.id === selectedSkill)?.range || classes[c.classId].range;
+    const ready = distance(c, target) <= range && clearSegment(c, target);
+    targetHost.querySelector('strong')!.textContent = `${definition.name} · Nivel ${definition.level}`;
+    targetHost.querySelector('small')!.textContent = ready ? 'En rango · Atacando' : 'Fuera de rango · Acercándose';
+    (targetHost.querySelector('i') as HTMLElement).style.width = `${Math.max(0, target.hp / definition.hp * 100)}%`;
+    targetHost.querySelector('b')!.textContent = `${Math.ceil(target.hp)} / ${definition.hp}`;
+    targetHost.classList.toggle('in-range', ready);
+  } else targetHost.replaceChildren();
   gameAudio.update(region.startsWith('Aurelia') ? 'Aurelia' : region, snapshot.players.find(p => p.id === c.id)?.animation === 'walk', performance.now());
   drawMinimap();
   const signature = JSON.stringify([c.inventory, c.equipment, c.sanctum]);
   const statsSignature = JSON.stringify([c.stats, c.freePoints, c.resets, c.level, c.crowns]);
-  if (modal && (signature !== inventorySignature || statsSignature !== panelSignature)) renderPanel();
+  if (modal && !inventoryDragging && (signature !== inventorySignature || statsSignature !== panelSignature)) renderPanel();
   inventorySignature = signature; panelSignature = statsSignature;
 }
 function drawMinimap(): void {
@@ -251,7 +284,12 @@ function renderPanel(): void {
   host.querySelector('#option-audio')?.addEventListener('change', event => { muted = !(event.target as HTMLInputElement).checked; localStorage.setItem('eter-muted', String(muted)); gameAudio.setMuted(muted); gameAudio.start(); });
   host.querySelector('#option-ids')?.addEventListener('change', event => { scene!.showIds = (event.target as HTMLInputElement).checked; });
   host.querySelectorAll<HTMLElement>('[data-item]').forEach(button => {
-    button.addEventListener('dragstart', event => { (event as DragEvent).dataTransfer!.setData('text/plain', JSON.stringify({ itemId: button.dataset.item, container: button.dataset.container })); });
+    button.addEventListener('dragstart', event => {
+      inventoryDragging = true; itemTooltip.hidden = true;
+      const transfer = (event as DragEvent).dataTransfer!; transfer.effectAllowed = 'move';
+      transfer.setData('text/plain', JSON.stringify({ itemId: button.dataset.item, container: button.dataset.container }));
+    });
+    button.addEventListener('dragend', () => { inventoryDragging = false; renderPanel(); });
     button.addEventListener('dblclick', () => {
       const itemId = button.dataset.item!, container = button.dataset.container!;
       if (modal === 'npc' && npcId === 'orin') send({ type: 'store', itemId, direction: container === 'inventory' ? 'deposit' : 'withdraw' });

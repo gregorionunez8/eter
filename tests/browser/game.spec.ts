@@ -10,16 +10,22 @@ import { WebSocket } from 'ws';
 import { getConfig } from '../../server/config';
 import { obstacles, walkable, clearSegment, findPath } from '../../shared/world';
 import { skills, items } from '../../shared/content';
+import { presentation } from '../../client/presentation';
 
 declare global { interface Window { eterDiagnostics: (point?: Point) => ReturnType<Scene['diagnostics']> | undefined } }
 type State = { type: string; now: number; self: Character; cooldowns: Record<string, number>; players: { id: string; x: number; z: number }[]; monsters: { id: string; definitionId: string; x: number; z: number; hp: number }[]; loot: { id: string; kind: string; ownerId: string; x: number; z: number; exclusiveUntil: number; item?: { id: string; definitionId: string } }[] };
 function observe(page: Page) {
-  const observed = { state: undefined as State | undefined, frames: [] as { now: number; x: number; z: number }[], errors: [] as string[] };
+  const observed = { state: undefined as State | undefined, frames: [] as { now: number; x: number; z: number }[], commands: [] as { type: string; x?: number; z?: number }[], notices: [] as string[], errors: [] as string[] };
+  let currentSocket: unknown;
   page.on('pageerror', error => observed.errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error' && /THREE\.|WebGL/.test(message.text())) observed.errors.push(message.text()); });
   page.on('websocket', socket => {
+    currentSocket = socket;
+    socket.on('framesent', frame => { try { observed.commands.push(JSON.parse(String(frame.payload))); } catch { /* Ignore non-command frames. */ } });
     socket.on('framereceived', frame => {
+      if (currentSocket !== socket) return;
       const value = JSON.parse(String(frame.payload)) as State;
+      if (value.type === 'notice') observed.notices.push((value as unknown as { message: string }).message);
       if (value.type === 'state') { observed.state = value; observed.frames.push({ now: value.now, x: value.self.x, z: value.self.z }); }
     });
   });
@@ -34,7 +40,20 @@ async function clickEntity(page: Page, id: string): Promise<void> {
   await label.click();
 }
 async function walkTo(page: Page, state: ReturnType<typeof observe>, point: Point): Promise<void> {
+  await page.bringToFront();
   const origin = { x: state.state!.self.x, z: state.state!.self.z };
+  // A close gameplay camera requires successive real clicks for distant routes.
+  // Never zoom out or send a movement command through a test-only hook.
+  if (Math.hypot(point.x - origin.x, point.z - origin.z) > 12) {
+    const route = findPath(origin, point); expect(route.length).toBeGreaterThan(0);
+    let previous = origin, remaining = 8, next = route[0];
+    for (const waypoint of route) {
+      const length = Math.hypot(waypoint.x - previous.x, waypoint.z - previous.z);
+      if (length >= remaining) { next = { x: previous.x + (waypoint.x - previous.x) * remaining / length, z: previous.z + (waypoint.z - previous.z) * remaining / length }; break; }
+      remaining -= length; previous = waypoint; next = waypoint;
+    }
+    await walkTo(page, state, next); await walkTo(page, state, point); return;
+  }
   await expect.poll(() => page.evaluate(p => { const d = window.eterDiagnostics(); return d ? Math.hypot(d.focus.x - p.x, d.focus.z - p.z) : Infinity; }, origin)).toBeLessThan(0.1);
   const projected = await page.evaluate(point => {
     // Choose genuinely exposed ground; floating labels and model silhouettes can cover it.
@@ -47,7 +66,16 @@ async function walkTo(page: Page, state: ReturnType<typeof observe>, point: Poin
   if (!projected) console.log('Covered ground:', JSON.stringify(await page.evaluate(p => { const d = window.eterDiagnostics(p)!; const top = d.projected ? document.elementFromPoint(d.projected.x, d.projected.y) : null; return { point: p, projected: d.projected, hit: d.groundHit, top: top?.outerHTML }; }, point)));
   expect(projected, 'walking requires an exposed canvas point which raycasts to ground').toBeTruthy();
   await page.mouse.click(projected!.x, projected!.y);
-  await expect.poll(() => state.state ? Math.hypot(state.state.self.x - point.x, state.state.self.z - point.z) : Infinity).toBeLessThan(0.6);
+  try { await expect.poll(async () => {
+    // Keep the active-page transport sampled while checking authoritative
+    // WS positions, to distinguish stale observations from failed movement.
+    await page.evaluate(() => document.visibilityState);
+    return state.state ? Math.hypot(state.state.self.x - point.x, state.state.self.z - point.z) : Infinity;
+  }).toBeLessThan(0.6); }
+  catch (error) {
+    const diagnostics = await page.evaluate(p => { const d = window.eterDiagnostics(p); return d && { renderer: d.renderer, focus: d.focus, projected: d.projected, groundHit: d.groundHit, renderedFrames: d.renderedFrames }; }, point);
+    console.log('Walk failure:', JSON.stringify({ origin, point, commands: state.commands.slice(-5), notices: state.notices.slice(-5), frames: state.frames.slice(-15), lastSnapshotAt: state.state?.now, actual: state.state && { x: state.state.self.x, z: state.state.self.z }, diagnostics })); throw error;
+  }
 }
 
 const nonce = Date.now().toString(36);
@@ -63,13 +91,14 @@ async function clickVisibleSprout(page: Page, aliveIds?: string[]): Promise<stri
   await page.mouse.click(hit!.x, hit!.y); return hit!.id;
 }
 async function register(page: Page, suffix: string, classId: string, base = ''): Promise<{ username: string; characterId: string }> {
+  await page.bringToFront();
   page.on('pageerror', error => console.log(`Browser ${suffix}: ${error.stack}`));
   page.on('console', message => { if (message.type() === 'error') console.log(`Console ${suffix}: ${message.text()}`); });
   page.on('websocket', socket => { if (socket.url().includes('/ws?')) { console.log(`Socket ${suffix}: connected`); let frames = 0; socket.on('framereceived', frame => { if (frames++ < 2) console.log(`Frame ${suffix}: ${String(frame.payload).slice(0, 100)}`); }); socket.on('socketerror', error => console.log(`Socket ${suffix}: ${error}`)); } });
   const username = `test_${nonce}_${suffix}`;
   await page.goto(`${base}/?diagnostics=1`);
   if (suffix === 'class0') {
-    await page.evaluate(async () => { const art = new Image(); art.src = '/art/aurelia-entry.png'; await art.decode(); });
+    await page.evaluate(async () => { const art = new Image(); art.src = '/art/aurelia-gameplay.png'; await art.decode(); });
     await page.screenshot({ path: 'test-results/login.png' });
   }
   await page.locator('[name="username"]').fill(username); await page.locator('[name="password"]').fill('browser-secure-password');
@@ -79,7 +108,10 @@ async function register(page: Page, suffix: string, classId: string, base = ''):
   const card = page.locator('[data-character]').first(); await expect(card).toBeVisible(); const characterId = await card.getAttribute('data-character');
   await card.click();
   if (suffix.startsWith('class')) { await expect(page.locator('#character-preview canvas')).toBeVisible(); await page.waitForTimeout(200); await page.screenshot({ path: `test-results/selection-${classId.toLowerCase()}.png` }); }
-  await page.locator('#enter-world').click(); await expect(page.locator('#character-name')).toContainText(`H${nonce.slice(-6)}`, { timeout: 90000 });
+  await page.bringToFront();
+  await page.locator('#enter-world').click();
+  try { await expect(page.locator('#character-name')).toContainText(`H${nonce.slice(-6)}`, { timeout: 90000 }); }
+  catch (error) { console.log('Startup diagnostics:', JSON.stringify(await page.evaluate(() => ({ diagnostics: window.eterDiagnostics?.(), notices: document.querySelector('#notices')?.textContent })))); throw error; }
   await expect(page.locator('#viewport canvas')).toBeVisible();
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-ready', 'true', { timeout: 15000 });
   return { username, characterId: characterId! };
@@ -92,6 +124,28 @@ test('Chrome renders original 3D Aurelia, click walking, UI grids and each class
     if (index) { await page.getByRole('button', { name: 'Opciones', exact: true }).click(); await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click(); }
     await register(page, `class${index}`, classId);
     await expect(page.locator('[data-skill]')).toHaveCount(4);
+    const composition = await page.evaluate(() => window.eterDiagnostics()!);
+    expect(composition.zoom).toBe(presentation.camera.defaultHalfHeight);
+    expect(composition.cameraElevationDegrees).toBeGreaterThan(30);
+    expect(composition.cameraElevationDegrees).toBeLessThan(38);
+    expect(composition.characterScreenHeight).toBeGreaterThan(90);
+    await page.screenshot({ path: `test-results/goal-3-camera-${classId.toLowerCase()}.png` });
+    if (!index) {
+      const hideHud = await page.addStyleTag({ content: '.game > :not(#viewport) { visibility: hidden !important; }' });
+      try { await page.locator('#viewport').screenshot({ path: 'test-results/aurelia-gameplay-backdrop.png' }); }
+      finally { await hideHud.evaluate(element => element.parentNode?.removeChild(element)); }
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.characterScreenHeight)).toBeGreaterThan(72);
+      await page.screenshot({ path: 'test-results/goal-3-camera-1280-default.png' });
+      await page.locator('#viewport canvas').hover(); await page.mouse.wheel(0, 10000);
+      await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(presentation.camera.maxHalfHeight);
+      expect((await page.evaluate(() => window.eterDiagnostics()!)).characterScreenHeight).toBeGreaterThan(60);
+      await page.screenshot({ path: 'test-results/goal-3-camera-1280-farthest.png' });
+      await page.mouse.wheel(0, -10000);
+      await page.mouse.wheel(0, (presentation.camera.defaultHalfHeight - presentation.camera.minHalfHeight) / presentation.camera.wheelSensitivity);
+      await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBeCloseTo(presentation.camera.defaultHalfHeight, 5);
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
     await expect(page.locator('#coordinates')).toContainText('Aurelia');
     const before = await page.locator('#coordinates').textContent();
     // Ground ahead of the player, clear of city buildings and central crystal.
@@ -103,13 +157,38 @@ test('Chrome renders original 3D Aurelia, click walking, UI grids and each class
     await page.locator('[data-slot="weapon"]').click(); await expect(page.locator('[data-slot="weapon"] strong')).toHaveText('—');
     const weapon = page.locator('.item').filter({ hasText: classId === 'VANGUARD' ? 'Espada' : classId === 'ARCANIST' ? 'Bastón' : 'Arco' }); await weapon.dblclick();
     await expect(page.locator('[data-slot="weapon"] strong')).not.toHaveText('—');
-    const potion = page.locator('.item.hp').first();
+    const potionId = await page.locator('.item.hp').first().getAttribute('data-item');
+    const potion = page.locator(`[data-item="${potionId}"]`);
+    // Keep an exact instance reference, including if the server refreshes the panel.
     await potion.dragTo(page.locator('.inventory-grid'), { targetPosition: { x: 190, y: 190 } });
-    await expect(potion).toHaveCSS('left', '180px');
+    await expect(potion, `drag instance ${potionId} for ${classId}`).toHaveCSS('left', '180px');
     await page.keyboard.press('Escape'); await page.getByRole('button', { name: 'Loot: ON', exact: true }).click(); await expect(page.getByRole('button', { name: 'Loot: OFF', exact: true })).toBeVisible();
     await page.screenshot({ path: `test-results/aurelia-${classId.toLowerCase()}.png` });
   }
   expect(errors).toEqual([]);
+});
+
+test('close camera presents normal melee and ranged farming, target status and physical pickups for all classes', async ({ browser }, testInfo) => {
+  test.setTimeout(300000);
+  for (const classId of ['VANGUARD', 'ARCANIST', 'RANGER']) {
+    const context = await browser.newContext(), page = await context.newPage(), observed = observe(page);
+    try {
+      const player = await register(page, `farm_${classId.toLowerCase()}`, classId);
+      await walkTo(page, observed, { x: 0, z: 20 }); await walkTo(page, observed, { x: 0, z: 29 });
+      await page.screenshot({ path: `test-results/goal-3-first-spot-${classId.toLowerCase()}.png` });
+      const target = await clickVisibleSprout(page, observed.state!.monsters.filter(m => m.hp > 0).map(m => m.id));
+      await expect(page.locator('#target-info')).toContainText('Sproutling');
+      await page.screenshot({ path: `test-results/goal-3-normal-combat-${classId.toLowerCase()}.png` });
+      await expect.poll(() => observed.state!.monsters.find(m => m.id === target)?.hp).toBe(0);
+      expect(observed.state!.self.xp).toBeGreaterThan(0);
+      const drop = observed.state!.loot.find(d => d.ownerId === player.characterId && d.kind === 'crowns');
+      expect(drop).toBeTruthy(); await page.screenshot({ path: `test-results/goal-3-loot-${classId.toLowerCase()}.png` });
+      const crowns = observed.state!.self.crowns; await clickEntity(page, drop!.id);
+      await expect.poll(() => observed.state!.self.crowns).toBeGreaterThan(crowns);
+      expect(observed.errors).toEqual([]);
+      await testInfo.attach(`normal-farming-${classId}`, { body: JSON.stringify({ classId, target, level: observed.state!.self.level, crowns: observed.state!.self.crowns, diagnostics: await page.evaluate(() => window.eterDiagnostics()) }), contentType: 'application/json' });
+    } finally { await context.close(); }
+  }
 });
 
 test('held ground click continues walking with the camera and release finishes precisely at the last destination', async ({ page }) => {
@@ -342,7 +421,7 @@ test('structured admin forms persist content, reject invalid config, manage spot
 });
 
 test('production visuals: physical Ether, day/night, twelve skills, projectiles, zoom and obstacle routes', async ({ page }, testInfo) => {
-  test.setTimeout(180000);
+  test.setTimeout(360000);
   const folder = mkdtempSync(join(tmpdir(), 'eter-visual-')), database = join(folder, 'visual.sqlite');
   const base = 'http://127.0.0.1:3101';
   // Isolated, disclosed visual fixture: normal loot is still created by combat and picked up manually.
@@ -391,10 +470,14 @@ test('production visuals: physical Ether, day/night, twelve skills, projectiles,
     await expect(page.locator('#notices')).toContainText('bloqueado');
     expect(observed.state!.self.x).toBe(-4);
     await page.locator('#viewport canvas').hover(); await page.mouse.wheel(0, -10000);
-    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(12);
+    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(presentation.camera.minHalfHeight);
     await page.mouse.wheel(0, 10000);
-    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(26);
-    await page.mouse.wheel(0, -667);
+    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(presentation.camera.maxHalfHeight);
+    expect((await page.evaluate(() => window.eterDiagnostics()!)).characterScreenHeight).toBeGreaterThan(75);
+    await page.mouse.wheel(0, (presentation.camera.defaultHalfHeight - presentation.camera.maxHalfHeight) / presentation.camera.wheelSensitivity);
+    await teleport({ x: 12, z: -7 });
+    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.fadedBuildings)).toBeGreaterThan(0);
+    await page.screenshot({ path: 'test-results/goal-3-building-occlusion.png' });
     await teleport({ x: 0, z: 10 });
     await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.daylight), { timeout: 12000, intervals: [100] }).toBeGreaterThan(0.95);
     const day = await page.evaluate(() => window.eterDiagnostics()); await page.screenshot({ path: 'test-results/day.png' });
@@ -440,7 +523,7 @@ test('production visuals: physical Ether, day/night, twelve skills, projectiles,
     expect((await page.evaluate(() => window.eterDiagnostics()!.drops)).some(d => d.id === ether.id)).toBe(true);
     await teleport({ x: -3, z: 31 });
     await page.locator('#viewport canvas').hover(); await page.mouse.wheel(0, -10000);
-    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(12);
+    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(presentation.camera.minHalfHeight);
     const crystal = await page.evaluate(p => window.eterDiagnostics(p)!.projected!, { x: ether.x, z: ether.z });
     await page.screenshot({ path: 'test-results/ether-without-labels.png', clip: { x: crystal.x - 140, y: crystal.y - 120, width: 280, height: 200 } });
     await page.getByRole('button', { name: 'Loot: OFF', exact: true }).click();
@@ -477,18 +560,21 @@ test('production visuals: physical Ether, day/night, twelve skills, projectiles,
     expect(observed.errors).toEqual([]);
     expect(output).not.toContain('uncaughtException');
   } finally {
-    await page.goto('about:blank');
+    await testInfo.attach('visual-server-output', { body: JSON.stringify({ output, exitCode: child?.exitCode, signalCode: child?.signalCode }), contentType: 'application/json' });
+    await page.goto('about:blank').catch(() => {});
     if (child && child.exitCode === null) { const exited = new Promise<void>(resolve => child!.once('exit', () => resolve())); child.kill(); await exited; }
     rmSync(folder, { recursive: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
 test('two rendering Chrome clients remain responsive with ten connected players', async ({ browser }, testInfo) => {
-  test.setTimeout(90000);
+  // Total includes two full registrations/model loads on the current Radeon R5.
+  // Frame-time, snapshot-rate and per-connection gates below remain unchanged.
+  test.setTimeout(240000);
   const contexts = await Promise.all([browser.newContext(), browser.newContext()]);
   const pages = await Promise.all(contexts.map(c => c.newPage()));
   const A = observe(pages[0]), B = observe(pages[1]);
-  const clients: { socket: WebSocket; frames: number; state?: State }[] = [];
+  const clients: { socket: WebSocket; frames: number; state?: State; error?: string }[] = [];
   try {
     await register(pages[0], 'perf_a', 'VANGUARD'); await register(pages[1], 'perf_b', 'RANGER');
     const base = 'http://127.0.0.1:3100';
@@ -500,10 +586,11 @@ test('two rendering Chrome clients remain responsive with ten connected players'
       expect(creation.ok).toBe(true);
       const { character } = await creation.json() as { character: Character };
       const socket = new WebSocket(`ws://127.0.0.1:3100/ws?characterId=${character.id}`, { headers: { Cookie: cookie } });
-      const client = { socket, frames: 0, state: undefined as State | undefined };
+      const client = { socket, frames: 0, state: undefined as State | undefined, error: undefined as string | undefined };
+      socket.on('error', error => { client.error = error.message; });
       socket.on('message', data => { const value = JSON.parse(String(data)) as State; if (value.type === 'state') { client.frames++; client.state = value; } });
       clients.push(client);
-      await expect.poll(() => client.frames).toBeGreaterThan(0);
+      await expect.poll(() => client.error ?? (client.frames > 0 ? 'ready' : `waiting (${socket.readyState})`)).toBe('ready');
       socket.send(JSON.stringify({ type: 'move', x: i - 4, z: 30 }));
     }
     await expect.poll(() => A.state!.players.length).toBe(10); await expect.poll(() => B.state!.players.length).toBe(10);
@@ -547,7 +634,7 @@ test('two rendering Chrome clients remain responsive with ten connected players'
 test('software rendering starts two clients and reconnects without an empty HUD', async ({}, testInfo) => {
   // Two CPU-rendered worlds and four scene rebuilds need a larger total budget;
   // individual connection/readiness assertions retain their existing deadlines.
-  test.setTimeout(180000);
+  test.setTimeout(420000);
   const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] });
   try {
     const contexts = await Promise.all([browser.newContext({ viewport: { width: 1440, height: 900 } }), browser.newContext({ viewport: { width: 1440, height: 900 } })]);
@@ -581,7 +668,7 @@ test('level-one grinding loop reaches gear, city services and Sanctum without ad
   expect(observed.state!.self.level).toBe(1);
   await page.keyboard.press('4');
   await expect.poll(() => observed.state!.cooldowns['war-cry'] ?? 0).toBeGreaterThan(0);
-  await page.keyboard.press('0');
+  await expect(page.locator('.skill.normal')).toHaveClass(/active/);
   let kills = 0, pickedCrowns = false;
   let gear: Character['inventory'][number] | undefined;
   while ((!gear || observed.state!.self.level < 2) && Date.now() - started < 180000) {
@@ -596,7 +683,10 @@ test('level-one grinding loop reaches gear, city services and Sanctum without ad
     }
     gear = observed.state!.self.inventory.find(item => {
       const def = items.find(d => d.id === item.definitionId)!;
-      return !!def.slot && Object.entries(def.requirements ?? {}).every(([stat, required]) => observed.state!.self.stats[stat as keyof Character['stats']] >= required);
+      const needed = Object.entries(def.requirements ?? {}).reduce((sum, [stat, required]) => sum + Math.max(0, required - observed.state!.self.stats[stat as keyof Character['stats']]), 0);
+      // A natural drop may require earned stat points, including a hybrid weapon.
+      // Reserve five points for the Vitality step exercised below.
+      return !!def.slot && needed <= observed.state!.self.freePoints - 5;
     });
   }
   expect(kills).toBeGreaterThanOrEqual(2); expect(pickedCrowns).toBe(true); expect(gear).toBeTruthy();
@@ -604,6 +694,13 @@ test('level-one grinding loop reaches gear, city services and Sanctum without ad
   const vitality = observed.state!.self.stats.vitality;
   await page.locator('[data-stat="vitality"][data-amount="5"]').click();
   await expect.poll(() => observed.state!.self.stats.vitality).toBe(vitality + 5);
+  for (const [stat, required] of Object.entries(items.find(d => d.id === gear!.definitionId)!.requirements ?? {})) {
+    while (observed.state!.self.stats[stat as keyof Character['stats']] < required) {
+      const before = observed.state!.self.stats[stat as keyof Character['stats']], amount = required - before >= 5 ? 5 : 1;
+      await page.locator(amount === 5 ? `[data-stat="${stat}"][data-amount="5"]` : `[data-stat="${stat}"]:not([data-amount])`).click();
+      await expect.poll(() => observed.state!.self.stats[stat as keyof Character['stats']]).toBe(before + amount);
+    }
+  }
   await page.keyboard.press('Escape'); await page.keyboard.press('i');
   await page.locator(`[data-item="${gear!.id}"]`).dblclick();
   const slot = items.find(d => d.id === gear!.definitionId)!.slot!;
@@ -616,7 +713,9 @@ test('level-one grinding loop reaches gear, city services and Sanctum without ad
   await page.keyboard.press('Escape'); await walkTo(page, observed, { x: 0, z: 10 });
   await clickEntity(page, 'npc-brom'); await expect(page.locator('#repair')).toBeVisible();
   await page.locator('#repair').click(); await expect(page.locator('#notices')).toContainText('reparado');
-  await page.keyboard.press('Escape'); await clickEntity(page, 'npc-orin');
+  await page.keyboard.press('Escape');
+  // The close camera requires walking north to bring Sanctum into view.
+  await walkTo(page, observed, { x: -5, z: -9 }); await clickEntity(page, 'npc-orin');
   const bag = page.locator('.inventory-grid[data-container="inventory"]'), vault = page.locator('.inventory-grid[data-container="sanctum"]');
   await expect(bag).toBeVisible(); const storedId = await bag.locator('.item').first().getAttribute('data-item');
   await bag.locator('.item').first().dblclick(); await expect(vault.locator(`[data-item="${storedId}"]`)).toBeVisible();

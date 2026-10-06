@@ -360,7 +360,7 @@ export class Game {
   snapshot(player: PlayerRuntime): unknown {
     return {
       type: 'state', now: this.now, self: player.character, cooldowns: player.cooldowns, buffs: player.buffs,
-      players: [...this.players.values()].map(p => ({ id: p.character.id, name: p.character.name, classId: p.character.classId, x: p.character.x, z: p.character.z, hp: p.character.hp, maxHp: formulas.maxHp(p.character.stats), animation: p.animation, equipment: Object.fromEntries(Object.entries(p.character.equipment).map(([slot, item]) => [slot, item.definitionId])) })),
+      players: [...this.players.values()].map(p => ({ id: p.character.id, name: p.character.name, classId: p.character.classId, x: p.character.x, z: p.character.z, hp: p.character.hp, maxHp: formulas.maxHp(p.character.stats), animation: p.animation, targetId: p.targetId, equipment: Object.fromEntries(Object.entries(p.character.equipment).map(([slot, item]) => [slot, item.definitionId])) })),
       monsters: [...this.creatures.values()].map(({ path, nextPathAt, ...m }) => m), loot: [...this.loot.values()],
     };
   }

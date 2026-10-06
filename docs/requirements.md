@@ -1,6 +1,6 @@
 # Éter — requisitos y verificación
 
-Este documento registra el alcance recibido. El objetivo sigue activo hasta verificar el vertical slice completo contra todos los criterios de aceptación. Las secciones aún no recibidas no se consideran satisfechas.
+Este documento registra el alcance completo recibido para Goal #1. La evidencia actual de cada criterio está en `docs/verification.md`; este archivo conserva los requisitos originales.
 
 ## Visión
 
@@ -10,7 +10,7 @@ No copiar assets, mapas, monstruos, personajes, nombres, sonidos, interfaces, te
 
 ## Arquitectura
 
-TypeScript, Three.js, Vite, servidor Node.js autoritativo, WebSockets con ws y persistencia SQLite. Contenido separado de la simulación. Panel administrativo pendiente de implementación. Priorizar simplicidad, estabilidad, continuidad del desarrollo y facilidad para modificar contenido.
+TypeScript, Three.js, Vite, servidor Node.js autoritativo, WebSockets con ws y persistencia SQLite. Contenido separado de la simulación. Panel administrativo implementado y protegido por cuenta. Priorizar simplicidad, estabilidad, continuidad del desarrollo y facilidad para modificar contenido.
 
 El cliente envía intenciones. El servidor calcula y valida daño, experiencia, drops, ownership del loot, dinero, Éter, estadísticas permanentes, muerte, inventario y equipamiento. Las pruebas deben incluir mensajes maliciosos y dos clientes simultáneos.
 
@@ -74,4 +74,4 @@ El cliente envía intenciones. El servidor calcula y valida daño, experiencia, 
 
 ## Criterios de aceptación y evidencia
 
-Los 57 criterios de la solicitud se auditan en `docs/verification.md`. Un test de servidor demuestra la regla probada; no sustituye la prueba de la interfaz o el escenario final real. La instalación y el build pasaron, al igual que las primeras 17 pruebas de servidor. La verificación de navegador y diez clientes sigue pendiente.
+Los 57 criterios de la solicitud se auditan en `docs/verification.md`. Un test de servidor demuestra la regla probada; no sustituye la prueba de la interfaz o el escenario final real. La suite actual combina reglas/persistencia/HTTP/WebSocket con Chrome real, A/B, efectos renderizados, navegación por clic y carga de diez usuarios. Los fixtures y límites de cada evidencia se declaran en la auditoría.

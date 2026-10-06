@@ -51,6 +51,14 @@ test('normal combat approaches, kills shared monster, grants XP and produces phy
   for (let i = 0; i < 100 && monster.hp > 0; i++) advance(100);
   assert.equal(monster.hp, 0); assert.ok(ca.xp > 0); assert.equal(cb.xp, 0);
   assert.ok(game.loot.size >= 3); assert.equal(ca.crowns, 50); assert.equal(ca.ether, 0);
+  for (const drop of game.loot.values()) {
+    assert.notEqual(drop.id, monster.id, 'Loot must have its own ID, even when its point is a monster');
+    assert.equal('definitionId' in drop, false, 'Monster runtime data must not leak into loot');
+    assert.equal('path' in drop, false);
+  }
+  const repeated = game.addLoot(pa, monster, 'crowns', 1);
+  assert.equal(game.loot.size, 4, 'Multiple kills at the same spot must not overwrite an earlier drop');
+  assert.notEqual(repeated.id, monster.id);
   assert.equal(game.players.get(ca.id)?.targetId, monster.id);
   const stateA = game.snapshot(pa) as { monsters: unknown[]; loot: unknown[] };
   const stateB = game.snapshot(game.players.get(cb.id)!) as { monsters: unknown[]; loot: unknown[] };

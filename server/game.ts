@@ -199,7 +199,8 @@ export class Game {
     this.store.save(c);
   }
   addLoot(player: PlayerRuntime, point: Point, kind: Loot['kind'], amount: number, item?: ItemInstance): Loot {
-    const drop: Loot = { id: randomUUID(), ...point, kind, amount, item, ownerId: player.character.id, exclusiveUntil: this.now + balance.lootExclusiveMs, expiresAt: this.now + balance.lootLifetimeMs, name: kind === 'item' ? definition(item!).name : `${amount} ${kind === 'ether' ? 'Éter' : 'Crowns'}` };
+    // A Point may also be a MonsterRuntime: copy coordinates, never its entity ID or runtime fields.
+    const drop: Loot = { id: randomUUID(), x: point.x, z: point.z, kind, amount, item, ownerId: player.character.id, exclusiveUntil: this.now + balance.lootExclusiveMs, expiresAt: this.now + balance.lootLifetimeMs, name: kind === 'item' ? definition(item!).name : `${amount} ${kind === 'ether' ? 'Éter' : 'Crowns'}` };
     this.loot.set(drop.id, drop); return drop;
   }
   kill(player: PlayerRuntime, monster: MonsterRuntime): void {

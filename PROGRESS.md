@@ -1,3 +1,38 @@
+# Éter — estado actual después de reanudar Goal #1
+
+Actualizado el 2026-10-05. **Goal #1 verificado.** Se continuó desde los commits `a07b287` y `8bffb35`, preservando Three.js/Vite, Node HTTP/WebSockets, SQLite, simulación autoritativa y contenido compartido. La auditoría vigente es `docs/verification.md`; el informe de la sesión anterior permanece íntegro debajo como historial, y sus pendientes ya resueltos no describen el estado actual.
+
+## Resultado final observado
+
+- `npm.cmd test`: **19/19 aprobados**, incluyendo la regresión de IDs de loot, navegación contra todos los tipos relevantes, diez usuarios reales HTTP/WS, combate disputado, sesiones/admin y persistencia/configuración tras reiniciar.
+- `npm.cmd run test:e2e`: **7/7 aprobados**, 0 fallos, 0 skips y 0 flaky; duración aproximada 2.5 minutos. Incluye TypeScript y build final. Bundle JS 543.59 kB, 142.74 kB gzip; advertencia de tamaño de Vite sin error.
+- Escenario A/B completo: salida caminando con snapshots continuos antes de cualquier promoción/helper/teleport; ambos jugadores visibles y mismos monstruos; selección de Sproutling alcanzable mediante mouse; muerte/EXP compartida; B rechazado antes de 30s y pickup público después del reloj de expiración; A recoge Crowns y un item, equipa ese ID, reconecta y conserva equipo/durabilidad/metadata, EXP/nivel y Crowns. También logout/login real de A con progreso conservado.
+- Primer frame/HUD y dos reconexiones adicionales de B con A activo. Arranque final de B con GPU: 614 ms. Chrome forzado a SwiftShader: segundo cliente en 4.731 s y dos reconexiones correctas con fallback sin sombras.
+- Ocho rutas reales por clic alrededor de cristal, edificio, fuente, NPC, árbol, roca, pilar y pared de ruinas. Posiciones caminables y desvío observado. Destino bloqueado rechazado y zoom limitado a 14–34.
+- Día y noche con ciclo aislado de 10s, luz mínima jugable, capturas inspeccionadas. Éter físico emisivo con partículas; capturas con/sin nombres, hit testing, pickup manual y persistencia tras reconnect. Las doce skills ejecutadas y sus efectos realmente renderizados; proyectiles de Arcanist y Ranger presentes en frames.
+- Dos Chrome renderizando con ocho clientes WS adicionales: diez usuarios, interpolación observada, ~9.96 snapshots/s por cliente de red. RTX 3080 Ti/headless: frame mediano 5.0 ms, p95 6.9–7.0 ms, 298–300 draw calls por escena. No equivale a diez navegadores gráficos ni a un benchmark de todas las PCs.
+- README, GAME_DESIGN, requisitos y los 57 criterios de aceptación reconciliados. `test-results/results.json` y capturas/adjuntos contienen evidencia local reproducible, ignorada por git.
+
+## Correcciones concretas
+
+`addLoot` copiaba un MonsterRuntime mediante spread y sobrescribía el UUID nuevo con el ID del monstruo. Eso compartía la clave del label entre entidad y drop y causaba errores de JavaScript/recolección. Ahora copia únicamente x/z y cada drop mantiene ID independiente; se agregó una regresión.
+
+Las etiquetas interactivas usan dimensiones reales y separación agrupada para evitar intercepción mutua. HUD/paneles quedan por encima de labels. Los modelos de jugadores dejan pasar clics de caminar (no existe acción de clic sobre jugadores en este slice). Los callbacks de sockets/escenas anteriores se ignoran al salir o reconectar. Se espera un frame renderizado además del snapshot/HUD al acreditar arranque.
+
+La prueba A/B selecciona un Sproutling verdaderamente alcanzable y verifica el item por ID exacto, incluyendo reconnect/logout/login. El test entry point `tests/browser/server.ts` fija la aleatoriedad exclusivamente en el proceso de aceptación para repetir encuentros, conservando las probabilidades normales y las reglas. `npm start` y `npm run dev` mantienen aleatoriedad normal. VIS usa otro servidor/DB temporal, Éter garantizado, aggro desactivado y ciclo acelerado para capturas; obtiene los drops por muerte/pickup real y elimina el fixture. La DB principal y los defaults no se modifican.
+
+## Límites y trabajo futuro
+
+No quedan criterios funcionales bloqueantes de Goal #1 en los escenarios cubiertos. Arte, animaciones y audio son procedurales básicos; lectura estética del Éter en distintas pantallas y sensación subjetiva de efectos/audio admiten revisión humana adicional. Se inspeccionaron capturas de día/noche, ruinas y el pequeño cristal de Éter visible junto a Crowns. Bajo acumulaciones extremas los labels pueden desplazarse fuera de viewport; se conserva picking de modelos y selección de labels visibles. No se hizo una sesión de varias horas ni despliegue público. Persiste la advertencia de tamaño del bundle.
+
+Party, trade, guilds, PvP, crafting y upgrades avanzados continúan fuera del alcance. Comandos de uso local/segundo cliente y fixtures: README. No hay una continuación de Goal #1 pendiente por un timeout de multiplayer.
+
+---
+
+# Informe histórico de la sesión detenida en la otra computadora
+
+Lo siguiente se conserva como evidencia histórica; sus afirmaciones de Goal incompleto y pasos pendientes corresponden al momento anterior a la reanudación.
+
 # Éter — estado del desarrollo
 
 Este informe se basa exclusivamente en el trabajo y los resultados observados durante esta sesión. No se ejecutaron comandos, tests, builds, navegadores ni servidores para escribirlo. No se inspeccionó ni verificó nuevamente el repositorio.

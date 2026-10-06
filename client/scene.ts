@@ -38,6 +38,14 @@ export class Scene {
   running = true;
   started = false;
   resizeObserver: ResizeObserver;
+  renderedFrames = 0;
+  frameTimes: number[] = [];
+  renderTimes: number[] = [];
+  visualEvents: Record<string, number> = {};
+  presentedVisuals: Record<string, number> = {};
+  daylight = 1;
+  labelSizes = new Map<string, { width: number; height: number }>();
+  labelsDirty = true;
   constructor(readonly canvasHost: HTMLElement, readonly labelHost: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
@@ -45,6 +53,7 @@ export class Scene {
     const context = this.renderer.getContext();
     const rendererExtension = context.getExtension('WEBGL_debug_renderer_info');
     const rendererName = rendererExtension ? String(context.getParameter(rendererExtension.UNMASKED_RENDERER_WEBGL)) : '';
+    this.renderer.domElement.dataset.renderer = rendererName;
     if (/swiftshader|llvmpipe|software|basic render/i.test(rendererName)) {
       this.renderer.shadowMap.enabled = false;
       this.renderer.setPixelRatio(1);
@@ -166,7 +175,7 @@ export class Scene {
     for (const side of [-1, 1]) { const leg = this.mesh(new THREE.CylinderGeometry(0.1, 0.12, size, 4), def.color); leg.position.set(side * size * 0.7, size * 0.4, 0); leg.rotation.z = side * 0.4; group.add(leg); legs.push(leg); }
     return { group, target: entity, legs, arms: [], animation: 'idle' };
   }
-  label(id: string, html: string, className: string): HTMLDivElement { const element = document.createElement('div'); element.className = `world-label ${className}`; element.dataset.entityId = id; element.innerHTML = html; this.labelHost.append(element); this.labels.set(id, element); return element; }
+  label(id: string, html: string, className: string): HTMLDivElement { const element = document.createElement('div'); element.className = `world-label ${className}`; element.dataset.entityId = id; element.innerHTML = html; this.labelHost.append(element); this.labels.set(id, element); this.labelsDirty = true; return element; }
   sync(players: VisibleEntity[], creatures: VisibleEntity[], loot: VisibleLoot[], selfId: string, now: number): void {
     this.selfId = selfId; this.serverNow = now;
     const entities = [...players, ...creatures.filter(m => m.hp > 0)], active = new Set(entities.map(e => e.id));
@@ -203,6 +212,7 @@ export class Scene {
       const label = this.labels.get(drop.id)!; label.textContent = `${drop.name}${drop.exclusiveUntil > now && drop.ownerId !== selfId ? ' 🔒' : ''}`; label.hidden = !this.showLootNames;
     }
     if (!this.started) { this.started = true; requestAnimationFrame(this.animate); }
+    this.labelsDirty = true;
   }
   disposeGroup(group: THREE.Object3D): void { this.scene.remove(group); group.traverse(object => { if (object instanceof THREE.Mesh || object instanceof THREE.Points) { object.geometry.dispose(); const mats = Array.isArray(object.material) ? object.material : [object.material]; mats.forEach(m => m.dispose()); } }); }
   pick(clientX: number, clientY: number): { kind: string; id?: string; point: Point } | undefined {
@@ -215,7 +225,8 @@ export class Scene {
     for (const hit of hits) {
       let object: THREE.Object3D | null = hit.object;
       while (object && !object.userData.kind) object = object.parent;
-      if (!object || (object.userData.kind === 'player' && object.userData.id === this.selfId)) continue;
+      // Players have no click action in this slice; their models must not swallow walking clicks.
+      if (!object || object.userData.kind === 'player') continue;
       return { kind: object.userData.kind as string, id: object.userData.id as string | undefined, point: { x: hit.point.x, z: hit.point.z } };
     }
   }
@@ -225,6 +236,7 @@ export class Scene {
   }
   destination(point: Point): void { this.marker.position.set(point.x, 0.09, point.z); this.marker.visible = true; window.setTimeout(() => { this.marker.visible = false; }, 1200); }
   effect(event: { x: number; z: number; kind: string; amount?: number; sourceId?: string }): void {
+    this.visualEvents[event.kind] = (this.visualEvents[event.kind] ?? 0) + 1;
     const source = event.sourceId ? this.actors.get(event.sourceId) : undefined;
     if (source && (event.kind === 'magic' || source.group.userData.classId === 'RANGER') && event.amount) {
       const arrow = source.group.userData.classId === 'RANGER';
@@ -232,8 +244,11 @@ export class Scene {
       const from = source.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)), to = new THREE.Vector3(event.x, 1, event.z);
       if (arrow) mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
       mesh.position.copy(from); this.scene.add(mesh); this.projectiles.push({ mesh, from, to, start: performance.now(), duration: Math.max(120, from.distanceTo(to) * 25) });
+      const kind = arrow ? 'arrow-projectile' : 'magic-projectile'; this.visualEvents[kind] = (this.visualEvents[kind] ?? 0) + 1;
+      mesh.userData.visualKind = kind;
     }
     const mesh = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.32, 16), new THREE.MeshBasicMaterial({ color: event.kind === 'magic' ? 0x99dbef : 0xf0d39b, transparent: true, opacity: 0.85, side: THREE.DoubleSide })); mesh.rotation.x = -Math.PI / 2; mesh.position.set(event.x, 0.3, event.z); this.scene.add(mesh); this.effects.push({ mesh, until: performance.now() + 450 });
+    mesh.userData.visualKind = event.kind;
     if (event.amount) { const label = this.label(`damage-${performance.now()}`, String(event.amount), 'damage-label'); const p = this.project(event, 2); label.style.transform = `translate(${p.x}px,${p.y}px)`; window.setTimeout(() => { this.labels.forEach((v, k) => { if (v === label) this.labels.delete(k); }); label.remove(); }, 700); }
   }
   resize(): void { const width = this.canvasHost.clientWidth, height = this.canvasHost.clientHeight; this.viewWidth = width; this.viewHeight = height; this.renderer.setSize(width, height); const aspect = width / Math.max(1, height); this.camera.left = -this.zoom * aspect; this.camera.right = this.zoom * aspect; this.camera.top = this.zoom; this.camera.bottom = -this.zoom; this.camera.updateProjectionMatrix(); }
@@ -242,6 +257,7 @@ export class Scene {
     requestAnimationFrame(this.animate);
     const now = performance.now();
     if (now - this.time < this.frameInterval) return;
+    if (this.renderedFrames) { this.frameTimes.push(now - this.time); if (this.frameTimes.length > 300) this.frameTimes.shift(); }
     const dt = Math.min(0.05, (now - this.time) / 1000 || 0.016); this.time = now;
     for (const actor of this.actors.values()) {
       const dx = actor.target.x - actor.group.position.x, dz = actor.target.z - actor.group.position.z;
@@ -258,19 +274,12 @@ export class Scene {
     this.camera.position.copy(this.focus).add(new THREE.Vector3(35, 45, 35)); this.camera.lookAt(this.focus);
     this.sun.target.position.copy(this.focus); this.sun.position.copy(this.focus).add(new THREE.Vector3(30, 50, 20));
     const day = (Math.sin((this.serverNow + now % 100) / balance.dayNightCycleDuration * Math.PI * 2) + 1) / 2;
+    this.daylight = day;
     this.sun.intensity = 0.7 + day * 2.3; this.ambient.intensity = 1.4 + day * 0.8;
     const sky = new THREE.Color(0x647e98).lerp(new THREE.Color(0xc5d6d8), day); (this.scene.background as THREE.Color).copy(sky); (this.scene.fog as THREE.Fog).color.copy(sky);
     this.crystal.rotation.y += dt * 0.12; this.crystal.position.y = 3.7 + Math.sin(now * 0.001) * 0.15; this.particles.rotation.y += dt * 0.06;
-    for (const [id, actor] of this.actors) this.placeLabel(id, { x: actor.group.position.x, z: actor.group.position.z }, actor.group.userData.kind === 'monster' ? 2 : 2.6);
-    for (const npc of npcs) this.placeLabel(`npc-${npc.id}`, npc, 2.7);
-    const placedLoot: { x: number; y: number }[] = [];
-    for (const [id, group] of this.drops) {
-      const point = { x: group.position.x, z: group.position.z }, projected = this.project(point, 0.8);
-      let offset = 0;
-      while (placedLoot.some(other => Math.abs(other.x - projected.x) < 170 && Math.abs(other.y - (projected.y - offset)) < 22)) offset += 22;
-      placedLoot.push({ x: projected.x, y: projected.y - offset });
-      this.placeLabel(id, point, 0.8, offset); group.rotation.y += dt * 0.2;
-    }
+    this.layoutLabels();
+    for (const group of this.drops.values()) group.rotation.y += dt * 0.2;
     this.effects = this.effects.filter(effect => { if (effect.until < now) { this.disposeGroup(effect.mesh); return false; } effect.mesh.scale.multiplyScalar(1 + dt * 5); return true; });
     this.projectiles = this.projectiles.filter(projectile => {
       const progress = Math.min(1, (now - projectile.start) / projectile.duration);
@@ -279,7 +288,64 @@ export class Scene {
       return true;
     });
     this.renderer.render(this.scene, this.camera);
+    for (const { mesh } of [...this.effects, ...this.projectiles]) {
+      const kind = mesh.userData.visualKind as string; this.presentedVisuals[kind] = (this.presentedVisuals[kind] ?? 0) + 1;
+    }
+    this.renderTimes.push(performance.now() - now); if (this.renderTimes.length > 300) this.renderTimes.shift();
+    this.renderedFrames++; this.renderer.domElement.dataset.ready = 'true';
   };
+  layoutLabels(): void {
+    // Batch measurements before writes, and reuse them between network snapshots.
+    if (this.labelsDirty) {
+      for (const [id, element] of this.labels) {
+        if (element.classList.contains('damage-label') || element.hidden) continue;
+        element.style.display = '';
+      }
+      for (const [id, element] of this.labels) {
+        if (!element.classList.contains('damage-label') && !element.hidden) this.labelSizes.set(id, { width: element.offsetWidth, height: element.offsetHeight });
+      }
+      for (const id of this.labelSizes.keys()) if (!this.labels.has(id)) this.labelSizes.delete(id);
+      this.labelsDirty = false;
+    }
+    const entries: { id: string; point: Point; height: number; interactive: boolean }[] = [];
+    for (const [id, group] of this.drops) entries.push({ id, point: { x: group.position.x, z: group.position.z }, height: 0.8, interactive: true });
+    for (const npc of npcs) entries.push({ id: `npc-${npc.id}`, point: npc, height: 2.7, interactive: true });
+    for (const [id, actor] of this.actors) entries.push({ id, point: { x: actor.group.position.x, z: actor.group.position.z }, height: actor.group.userData.kind === 'monster' ? 2 : 2.6, interactive: actor.group.userData.kind === 'monster' });
+    const placed: { left: number; right: number; top: number; bottom: number }[] = [];
+    for (const entry of entries) {
+      const element = this.labels.get(entry.id)!;
+      if (element.hidden) continue;
+      const p = this.project(entry.point, entry.height), size = this.labelSizes.get(entry.id) ?? { width: 120, height: 22 };
+      if (!p.visible) { element.style.display = 'none'; continue; }
+      const x = Math.max(size.width / 2 + 4, Math.min(this.viewWidth - size.width / 2 - 4, p.x));
+      let y = p.y;
+      if (entry.interactive) {
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const rect = { left: x - size.width / 2, right: x + size.width / 2, top: y - size.height, bottom: y };
+          const collision = placed.find(other => rect.left < other.right + 4 && rect.right > other.left - 4 && rect.top < other.bottom + 4 && rect.bottom > other.top - 4);
+          if (!collision) { placed.push(rect); break; }
+          y = collision.top - 4;
+        }
+      }
+      element.style.display = y >= size.height && y < this.viewHeight ? '' : 'none';
+      element.style.left = `${x}px`; element.style.top = `${y}px`;
+    }
+  }
+  /** Read-only acceptance diagnostics; no commands or mutable game objects are exposed. */
+  diagnostics(point?: Point) {
+    return {
+      ready: this.renderedFrames > 0, renderedFrames: this.renderedFrames,
+      renderer: this.renderer.domElement.dataset.renderer, shadows: this.renderer.shadowMap.enabled,
+      zoom: this.zoom, daylight: this.daylight, sun: this.sun.intensity, ambient: this.ambient.intensity,
+      drawCalls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles,
+      frameTimes: [...this.frameTimes], renderTimes: [...this.renderTimes], visualEvents: { ...this.visualEvents }, presentedVisuals: { ...this.presentedVisuals },
+      focus: { x: this.focus.x, z: this.focus.z },
+      actors: [...this.actors].map(([id, actor]) => ({ id, x: actor.group.position.x, z: actor.group.position.z, animation: actor.animation })),
+      drops: [...this.drops].map(([id, group]) => ({ id, meshes: group.children.map(child => ({ type: child.type, geometry: (child as THREE.Mesh).geometry?.type, emissive: ((child as THREE.Mesh).material as THREE.MeshStandardMaterial)?.emissive?.getHex() })) })),
+      projected: point ? this.project(point, 0) : undefined,
+      groundHit: point ? (() => { const p = this.project(point, 0); return this.pick(p.x, p.y); })() : undefined,
+    };
+  }
   placeLabel(id: string, point: Point, height: number, offset = 0): void { const element = this.labels.get(id); if (!element) return; const p = this.project(point, height); element.style.display = p.visible ? '' : 'none'; element.style.left = `${p.x}px`; element.style.top = `${p.y - offset}px`; }
   destroy(): void { this.running = false; this.resizeObserver.disconnect(); this.scene.traverse(object => { if (object instanceof THREE.Mesh || object instanceof THREE.Points) { object.geometry.dispose(); const mats = Array.isArray(object.material) ? object.material : [object.material]; mats.forEach(m => m.dispose()); } }); this.renderer.dispose(); this.renderer.forceContextLoss(); this.renderer.domElement.remove(); this.labelHost.replaceChildren(); }
 }

@@ -1,6 +1,6 @@
 # Éter
 
-Vertical slice MMORPG 3D original para navegador. Aurelia es una ciudad segura alrededor de un cristal de Éter, con cuatro regiones exteriores y progresión por combate. El desarrollo sigue activo hasta completar la auditoría funcional.
+Vertical slice MMORPG 3D original para navegador. Aurelia es una ciudad segura alrededor de un cristal de Éter, con cuatro regiones exteriores y progresión por combate. Goal #1 verificado: 19 tests de servidor y 7 tests Chrome aprobados. La evidencia y sus límites están en `docs/verification.md`.
 
 ## Instalación y ejecución
 
@@ -21,6 +21,28 @@ npm.cmd start
 ```
 
 `start` sirve el cliente compilado de `dist` y el servidor multiplayer. Los tests de navegador usan Chrome instalado, puerto 3100 y una DB independiente `data/e2e.sqlite`. Los informes y capturas van en `test-results/`. No comparten cuentas con la DB del juego.
+
+## Segundo cliente multiplayer
+
+Con el servidor local funcionando, abrí el primer cliente en una ventana normal de Chrome en http://127.0.0.1:3000. Para abrir el segundo con cookies independientes en Windows:
+
+```powershell
+Start-Process -FilePath "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" -ArgumentList '--incognito','--new-window','http://127.0.0.1:3000'
+```
+
+Usá una cuenta distinta en la ventana incógnita. Ambos clientes comparten el mismo servidor, mapa, monstruos y loot. Para automatizar el escenario completo de dos clientes:
+
+```powershell
+npm.cmd run test:e2e -- --grep "two actual"
+```
+
+## Verificación reproducible
+
+`npm.cmd test` cubre reglas, ownership exacto de 30 segundos, IDs independientes de loot, navegación, diez usuarios, combate disputado y persistencia tras reiniciar. `npm.cmd run test:e2e` compila y ejecuta Chrome sobre el bundle de producción: las tres clases/UI, escenario A/B, seguridad/admin/NPCs, visuales/navegación, diez usuarios con dos clientes renderizando y arranque/reconexión con SwiftShader.
+
+El servidor de aceptación usa `tests/browser/server.ts`, que fija la semilla de `Math.random` solamente en ese proceso de test. Las probabilidades normales de drop y las reglas autoritativas permanecen intactas; `npm start` y `npm run dev` usan aleatoriedad normal. El test visual inicia además un servidor temporal en 3101 con DB temporal, ciclo de 10 segundos, drop de Éter garantizado y aggro desactivado. El Éter se obtiene matando y recogiendo físicamente, sin crédito automático. Esa configuración se elimina al finalizar; la DB principal y el ciclo normal de 10 minutos no se modifican.
+
+`test-results/results.json` incluye resultados, rutas observadas, progreso persistido, métricas y contadores de efectos realmente renderizados. Las capturas incluyen día, noche, ruinas, Éter con/sin nombres, clases y multiplayer. El informe se reemplaza en cada ejecución. Para perfilado local, `/?diagnostics=1` habilita `window.eterDiagnostics()` de solo lectura; no expone comandos ni objetos mutables del juego.
 
 ## Arquitectura
 

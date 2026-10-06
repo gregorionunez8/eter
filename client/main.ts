@@ -12,6 +12,10 @@ let account: Account | undefined, scene: Scene | undefined, ws: WebSocket | unde
 let modal = '', npcId = '', selectedSkill = '', pendingPickup: string | undefined, pendingNpc: string | undefined;
 let inventorySignature = '', panelSignature = '', muted = localStorage.getItem('eter-muted') !== 'false';
 let audio: AudioContext | undefined;
+// Opt-in read-only diagnostics used by production acceptance tests and local profiling.
+if (new URLSearchParams(location.search).has('diagnostics')) {
+  Object.defineProperty(window, 'eterDiagnostics', { value: (point?: Point) => scene?.diagnostics(point) });
+}
 const slotNames: Record<Slot, string> = { helmet: 'Casco', armor: 'Armadura', pants: 'Pantalón', gloves: 'Guantes', boots: 'Botas', weapon: 'Arma', offhand: 'Escudo / secundaria', wings: 'Alas', necklace: 'Collar', ring1: 'Anillo I', ring2: 'Anillo II' };
 const statNames = { strength: 'Fuerza', agility: 'Agilidad', vitality: 'Vitalidad', energy: 'Energía' };
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
@@ -62,7 +66,9 @@ async function enter(characterId: string): Promise<void> {
   app.innerHTML = `<section class="game"><div id="viewport"></div><div id="labels"></div><header class="game-header"><div class="brand">ÉTER <span id="location">Aurelia</span></div><div class="top-tools"><button id="names-toggle" class="small">Loot: ON</button><button id="options-button" class="small">Opciones</button><button id="characters-button" class="small">Personajes</button>${account?.admin ? '<a href="/admin" target="_blank" class="admin-link">Admin ↗</a>' : ''}</div></header><aside class="minimap-box"><canvas id="minimap" width="180" height="180"></canvas><div id="coordinates"></div><small>N ↑ · Rueda: zoom</small></aside><div class="guide"><span>CLIC PARA CAMINAR</span>Enemigo: atacar · Objeto: recoger · NPC: conversar</div><aside id="target-info"></aside><div id="notices" role="status"></div><div id="panel" class="panel hidden"></div><footer class="hud"><div class="vitals"><div class="portrait" id="class-icon">⚔</div><div class="vital-bars"><strong id="character-name"></strong><div class="bar hp"><span id="hp-fill"></span><b id="hp-label"></b></div><div class="bar mana"><span id="mana-fill"></span><b id="mana-label"></b></div></div></div><div class="skills" id="skills"></div><div class="hud-right"><div class="wallet"><span id="crowns"></span><span id="ether"></span></div><div class="hud-buttons"><button id="inventory-button">Inventario <kbd>I</kbd></button><button id="stats-button">Stats <kbd>C</kbd></button></div><div class="potions"><button id="hp-potion">Vida <kbd>Q</kbd> <span></span></button><button id="mana-potion">Mana <kbd>W</kbd> <span></span></button></div></div><div class="experience"><span id="xp-fill"></span><b id="xp-label"></b></div></footer></section>`;
   scene = new Scene(document.querySelector('#viewport')!, document.querySelector('#labels')!);
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?characterId=${encodeURIComponent(characterId)}`);
+  const connection = ws, activeScene = scene;
   ws.addEventListener('message', event => {
+    if (ws !== connection || scene !== activeScene) return;
     const data = JSON.parse(event.data) as Snapshot & { message?: string; kind: string; x: number; z: number; amount?: number; admin: boolean };
     if (data.type === 'state') {
       snapshot = data; updateHud(); scene?.sync(data.players, data.monsters, data.loot, data.self.id, data.now);
@@ -71,8 +77,8 @@ async function enter(characterId: string): Promise<void> {
     } else if ((data as { type: string }).type === 'notice') notice(data.message!);
     else if ((data as { type: string }).type === 'effect') { scene?.effect(data); sound(data.kind); }
   });
-  ws.addEventListener('close', () => { if (scene) notice('Conexión cerrada. Volvé a Personajes para reconectar.'); });
-  ws.addEventListener('error', () => notice('No se pudo conectar al mundo.'));
+  ws.addEventListener('close', () => { if (ws === connection && scene === activeScene) notice('Conexión cerrada. Volvé a Personajes para reconectar.'); });
+  ws.addEventListener('error', () => { if (ws === connection) notice('No se pudo conectar al mundo.'); });
   document.querySelector('#characters-button')!.addEventListener('click', () => { void charactersScreen(); });
   document.querySelector('#inventory-button')!.addEventListener('click', () => openPanel('inventory'));
   document.querySelector('#stats-button')!.addEventListener('click', () => openPanel('stats'));

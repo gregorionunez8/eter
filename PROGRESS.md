@@ -1,12 +1,84 @@
-# Éter — Goal #3 en desarrollo
+# Éter — Goal #3 pausado; aceptación pendiente
 
-2026-10-06. Se recibió el alcance completo de 40 secciones: experiencia deliberadamente estilo MU 99b, con contenido propio; prioridad cámara/escala/framing, ciudad/spots, combate y HUD. Se excluyen expansiones como party/trade/guilds. `docs/goal-3-plan.md` registra requisitos, cambios y evidencia necesaria.
+Actualizado el 2026-10-06 por solicitud explícita de pausa. **Goal #3 NO está completo.** Esta actualización modifica únicamente este documento; no inicia features ni ejecuta tests. Las ejecuciones de tests descritas abajo ya terminaron: la tercera suite no sigue en curso.
 
-Implementado: cámara cercana 8.5 (7.5–10.5), elevación ~35.3°, atenuación de edificios que oculten jugador/target, núcleo de pavimento menor, servicios acercados, spots más densos/cercanos y señales, loot físico +20%, orientación por target de servidor, HP/rango del objetivo y HUD/grilla/slots con marco compacto. Migración conserva contenido personalizado y saves.
+Objetivo vigente: acercar cámara, escala, ciudad, spots, combate y presentación al feel de un MMORPG clásico estilo MU 99b, conservando contenido propio. Éter, Aurelia, Crowns, Éter como recurso, Vanguard/Arcanist/Ranger, Sanctum, builds híbridas, nivel máximo 500, resets, autoridad del servidor y persistencia siguen vigentes. No se agregaron party, trade, guilds ni las demás expansiones excluidas. `docs/goal-3-plan.md` conserva el alcance; las notas de Goal #2 y #1 al final son históricas, no evidencia de aceptación de Goal #3.
 
-Evidencia disponible: **33/33 tests de servidor aprobados**. Primera suite completa **5/11**; segunda **4/11**, con diagnóstico en `docs/goal-3-first-e2e.md` y `docs/goal-3-second-e2e.md`. Verificación focalizada posterior: cámara/tres clases/grillas/drag aprobados; multiplayer terminó el movimiento después del plazo y el principiante necesitó caminar hasta Sanctum para verlo con cámara cercana. Se corrigieron interferencias del encabezado y observación de conexiones viejas. Acceso/select usan el mapa jugable; soporte/movilidad mantienen modo de ataque. Tercera suite completa en curso con perfiles livianos para Radeon R5/SwiftShader. Goal pendiente de regreso/servicios, doce skills, día/noche y performance de varios clientes.
+## Completado y verificado dentro de Goal #3
 
-Goal #3 sigue activo y no está completo. Los informes siguientes son históricos.
+- Cámara ortográfica: semialtura por defecto **8.5**, límites **7.5–10.5**, offset **(35,35,35)**, elevación aproximada **35.3°** y azimut 45°. Antes: semialtura 14, límites 12–26 y offset (35,45,35). Se comprobó framing cercano en Chrome a 1440×900 y 1280×720. Los cuerpos mantienen aproximadamente 2.2 unidades; la presencia crece por encuadre, sin alterar arbitrariamente colisiones. Referencia a 1440×900: personaje cercano a 95 px CSS por defecto y 77 px al alejar al máximo.
+- Edificios que tapan al jugador o al target vivo se atenúan a opacidad 0.22 y restauran su estado al despejarse. Hay diagnóstico de edificios atenuados. La comprobación de cámara/oclusiones pasó en la tercera suite.
+- Aurelia: pavimento central reducido de 46×46 a 19×19, calles en cruz de 4.5 unidades, patios y bordes integrados al terreno. Se conserva la safe zone de semiancho 23 y el spawn (0,10). Servicios acercados: Brom (-8,4), Lyra (8,5), Orin (-8,-10), Kael (8,-10), Seraph (0,-9), Ronan (-12,12), Elyra (12,12), Sylwen (12,-15) y reset (-12,-15). Forge/alchemy permanecen en (-10,5)/(10,5).
+- Spots compactados y diferenciados; señales en cuatro salidas y vegetación apartada de las áreas de farmeo. Configuración por defecto actual:
+
+  | Spot | Centro X,Z | Radio | Mobs | Respawn |
+  | --- | --- | --- | --- | --- |
+  | green1 | 6,32 | 4 | 6 | 10 s |
+  | green2 | -9,40 | 4.5 | 5 | 11 s |
+  | green3 | 16,46 | 5 | 5 | 13 s |
+  | wood1 | -36,14 | 5 | 5 | 14 s |
+  | wood2 | -48,28 | 5 | 5 | 16 s |
+  | pass1 | 36,-8 | 4.5 | 5 | 16 s |
+  | pass2 | 49,10 | 5 | 5 | 18 s |
+  | ruins1 | -9,-36 | 5 | 5 | 18 s |
+  | ruins2 | 12,-49 | 5 | 4 | 22 s |
+
+- Migración de layout limitada a valores antiguos intactos: conserva contenido personalizado, cambios del propietario, bajas/desactivaciones y saves. Ante colisión entre NPCs migrados y personalizados, conserva posiciones originales. Cobertura de servidor aprobada.
+- Target autoritativo visible, orientación hacia el enemigo, panel con HP e indicación de rango; clic de suelo/NPC/loot limpia la selección visual. Se corrigió el encabezado que interceptaba clics. Movimiento por clic, acercamiento automático, ataque normal melee/ranged, bajas, EXP y pickup físico pasaron para las tres clases en la tercera suite.
+- HUD inferior centrado y compacto, HP/mana con más peso, skills y ataque normal con marco clásico, minimapa de 150 px CSS, panel de target de 240 px, grilla/equipamiento con más contraste. Se preservan los once slots de equipo. Loot físico ampliado 20%; ownership de 30 segundos y loot on/off conservados.
+- Inventario evita sustituir el DOM durante drag y refresca al terminar; drag del ID exacto aprobado. Skills instantáneas de soporte/movilidad no sustituyen el modo de ataque seleccionado. Ranger reutiliza el sonido de arco existente; no hubo verificación auditiva formal.
+- Login y selección usan una captura de la Aurelia jugable y los modelos propios de las tres clases. La autenticación anónima se comprueba antes de cargar los modelos pesados. Se preservan créditos de assets y contenido original.
+- Loop inicial natural aprobado: salir sin helpers admin, farmear, recoger equipo, asignar puntos ganados para sus requisitos, equiparlo, volver, comprar poción, reparar y depositar/retirar el mismo ítem en Sanctum. La prueba camina hasta Orin para interactuar con la cámara cercana.
+- Admin sectorizado, shops, Sanctum, stats, seguridad y persistencia conservados según los casos aprobados. El recorrido visual/funcional de producción pasó: ocho rutas con obstáculos, cuatro regiones, día/noche, doce skills/proyectiles, Éter físico, loot on/off/pickup y reconexión de ese escenario.
+
+## Implementado parcialmente / todavía sin validar
+
+Los cambios siguientes son posteriores a la última ejecución de Chrome. **Los tests de servidor actuales pasan, pero todavía no se compiló ni inspeccionó visualmente esta última revisión del cliente.**
+
+- Optimización de escena: batches estáticos no asociados a edificios divididos en celdas de 16×16; edificios conservan identidad para atenuación. Frustum de sombras reducido de ±45 a ±22. Falta medir ahorro y comprobar que no corta sombras ni introduce desapariciones visibles.
+- Perfil Radeon R5: límite cambiado de 30 a **20 FPS**, ratio 0.85 y sombras 1024. Software renderer: ratio 0.5, sin sombras dinámicas/bump, 10 FPS con foco y como máximo 2 FPS sin foco. Son valores implementados, no un benchmark aprobado; no se relajaron los criterios de las pruebas multicliente.
+- Stonepass y Ether Ruins: paletas gris/piedra y azul pizarra, desgaste/caminos coherentes y base pétrea de ruinas. Se agregaron landmarks derivados alrededor de sus spots: rocas y columnas originales, hasta tres posiciones candidatas por spot. Evitan ciudad, caminos, clearings de mobs y obstáculos; también forman parte de la colisión autoritativa. Falta revisar densidad, silueta, rutas y lectura real a cámara cercana.
+- Regeneración de landmarks al aplicar configuración: elimina solamente props derivados, respeta spots editados/eliminados y permite mover un spot sobre la posición de un landmark anterior sin ignorar obstáculos originales. Casos de edición/baja/idempotencia aprobados.
+- `getConfig` devuelve una copia profunda con `structuredClone`; se corrigió una referencia compartida que permitía que editar un borrador de requisitos/drops alterara contenido vivo antes de validarlo. Nuevo test de aislamiento aprobado.
+- Mitigación HTTP: keep-alive de 60 s y buffer de 5 s cuando Node lo admite, para investigar los `fetch failed` observados bajo carga. Su eficacia y la causa raíz de esos errores siguen sin demostrarse.
+- Diagnósticos opt-in `?diagnostics=1`: estados recibidos/ignorados, último estado, estado del socket y visibilidad; fixtures registran comandos, notices y últimos quince snapshots. Se ignoran callbacks de conexiones antiguas y se enfoca la página en registro/entrada/movimiento. Esto mejoró el arranque software, pero no resolvió todos los fallos.
+
+## Evidencia exacta de tests y revisión
+
+- **Último `npm.cmd test`: 35/35 aprobados**, sin skips, aproximadamente 33.44 s. Incluye los dos casos nuevos de landmarks y aislamiento de configuración. Una ejecución previa intermedia falló por región opcional de spots y referencias compartidas; ambos problemas fueron corregidos antes de estos 35/35.
+- Suites completas anteriores de `npm.cmd run test:e2e`: primera **5/11** (34.6 min); segunda **4/11** (30.4 min). Diagnósticos en `docs/goal-3-first-e2e.md` y `docs/goal-3-second-e2e.md`.
+- **Tercera suite completa: 8/11 aprobados, 3 fallidos, 22.7 min.** Pasaron cámara/tres clases/grillas/drag, normal attack/approach/farm de las tres clases, movimiento sostenido, seguridad, servicios/stats/Sanctum/admin, CRUD/auditoría admin, recorrido visual de producción y loop natural de principiante. Fallaron dos Chrome con reconexión/movimiento, diez jugadores y segundo HUD software. Artefactos: `data/goal-3-third-e2e/results.json` y PNGs asociados; son artefactos locales ignorados por Git.
+- **Última repetición focalizada**, `npm.cmd run test:e2e -- --grep "two actual Chrome|two rendering Chrome|software rendering"`: **0/3 aprobados**, aproximadamente 5.5 min. Dos Chrome quedaron a 1.6545 unidades del destino tras el plazo de 30 s; el caso de diez jugadores falló con `TypeError: fetch failed` durante setup de los ocho clientes HTTP; software cargó ambos HUDs pero falló al volver a entrar, sin canvas listo dentro de 15 s. Esa ejecución precede a las optimizaciones/landmarks/mitigación HTTP más recientes.
+- TypeScript/Vite aprobaron en esa última repetición: JS principal 710.71 kB / 196.10 kB gzip, con advertencia de chunk mayor a 500 kB. **Ese build no valida los cambios posteriores.**
+- Medición de un solo cliente Radeon R5 en la tercera suite: medianas de frame 41.8–45.5 ms, p95 58.1–91 ms, 82–86 draws. El contador de tiempo de render incluye trabajo de animación/layout/render; no aísla GPU. No es evidencia de rendimiento con diez jugadores ni del perfil nuevo de 20 FPS.
+- Se inspeccionaron capturas reales de login, selección, Aurelia a ambas resoluciones, primer spot, combate normal de las tres clases, loot, inventario/equipo/tooltips, stats, shop, Sanctum, HUD/minimapa, cuatro regiones y día/noche. El framing está más cerca de un MMORPG clásico, pero Stonepass y Ether Ruins todavía se veían planos/poco densos; eso motivó los últimos cambios aún sin inspeccionar. El caso de doce skills pasó funcionalmente; no equivale a una revisión estética cuadro por cuadro de cada una.
+
+## Qué se estaba trabajando justo antes de la pausa
+
+Se estaban atacando los tres fallos restantes de navegador y la falta de identidad vertical de Stonepass/Ether Ruins. El último trabajo concreto fue optimizar batches/sombras/cadencia por renderer, introducir landmarks seguros y paletas regionales, aislar borradores de configuración y ajustar keep-alive HTTP. Se terminó la corrección de las regresiones de configuración y se obtuvo **35/35 en servidor**. El siguiente paso pendiente era compilar esta revisión y repetir los tres casos Chrome fallidos, seguido de una inspección visual de las regiones modificadas. No hay resultado de esa comprobación todavía.
+
+## Bugs y limitaciones conocidas
+
+- Bajo carga de dos navegadores hay pausas reales entre snapshots de aproximadamente 2.2, 4.8 y 6.8 s. El movimiento no llega a tiempo y el `dt` de simulación limitado a 0.2 s agrava el avance durante pausas. Enfocar páginas y descartar sockets viejos no lo resolvió. No se ha aislado cuánto corresponde a CPU/render, scheduling, servidor o transporte; no atribuirlo solamente a GPU o a un observador obsoleto.
+- Setup multicliente: `fetch failed` antes de completar el escenario de diez jugadores. No existe benchmark multicliente válido de esta revisión. La mitigación HTTP no fue reprobada en navegador.
+- SwiftShader: el arranque inicial de ambos HUDs mejoró, pero la reentrada no creó/dejó listo el canvas dentro de 15 s. Pendiente aislar carga de `/api/content`, creación de escena y transporte; la causa específica no está confirmada.
+- Últimas paletas, landmarks, culling y sombras sin revisión visual: posible falta de densidad o regresiones de rutas/encuadre hasta comprobarlos. La dirección visual y el feel global siguen sin aceptación final.
+- Riesgo identificado por lectura de código, sin reproducción específica: una skill ofensiva seleccionada que falla por cooldown/maná podría no retargetear inmediatamente al mob nuevo. El texto de rango usa la skill seleccionada localmente, no un rango de ataque pendiente enviado por servidor. El fallback a ataque normal y un rango autoritativo se discutieron, **no se implementaron**; revisar antes de afirmar targeting perfecto.
+- Advertencia de bundle >500 kB pendiente. Audio existente preservado, pero sin escucha formal. No hay prueba nueva que acepte performance del perfil Radeon R5 de 20 FPS ni del software sin foco a 2 FPS.
+- `docs/verification.md`, partes de `docs/goal-3-plan.md` y algunos datos de `GAME_DESIGN.md` están desactualizados respecto de estos resultados/perfiles/respawns. No se modifican durante esta pausa.
+
+## Qué queda y próximos pasos exactos al reanudar
+
+1. Revisar el estado del workspace y conservar cambios del propietario. No detener sus servidores ni modificar su base de datos. Último `git status --short` observado antes de esta actualización: `server/config.ts`, `shared/world.ts` y `tests/configuration.test.ts` modificados; no inferir de eso que toda la implementación anterior esté sin commit.
+2. Compilar la revisión actual con `npm.cmd run build`; corregir solamente errores concretos si aparecen. Los 35 tests de servidor ya están verdes; repetirlos si nuevas correcciones afectan lógica crítica.
+3. Repetir los tres casos pendientes con `npm.cmd run test:e2e -- --grep "two actual Chrome|two rendering Chrome|software rendering"`, manteniendo los criterios existentes. Correlacionar tiempos de frames/snapshots, foco, sockets y errores HTTP para aislar las causas; no aumentar plazos para convertir fallos en aceptación.
+4. Resolver los fallos persistentes de movimiento/reconexión, setup de diez jugadores y reentrada software según esa evidencia. Medir el perfil nuevo y comprobar que el ahorro no deteriora respuesta, combate ni presentación. Revisar/reproducir el riesgo de retarget/rango antes de decidir una corrección.
+5. Inspeccionar en Chrome las últimas regiones y landmarks: rutas libres, spots reconocibles, identidad vertical, colores, sombras, culling y edificios atenuados. Revalidar login/select/Aurelia/salida/primer spot/melee/ranged/loot/inventario/stats/shops/Sanctum/minimapa/HUD/día-noche; completar revisión estética de skills y escucha de feedback.
+6. Ajustar lo necesario para que personaje, mobs y drops sean protagonistas y el mundo no parezca RTS/maqueta. Comparar capturas reales con los criterios de Goal #3; conservar identidad propia y sistemas funcionales. No expandir sistemas fuera del alcance.
+7. Ejecutar las comprobaciones finales requeridas: `npm.cmd test` y `npm.cmd run test:e2e`. Para cerrar se necesitan todos los casos aprobados, evidencia visual satisfactoria y aceptación del feel; ni 8/11 ni cambios de código sin observar bastan.
+8. Actualizar README.md, GAME_DESIGN.md, docs/verification.md, docs/goal-3-plan.md y este documento con resultados finales, cámara/escala, layout, combate, HUD, perfiles medidos y límites honestos. Entregar el reporte solicitado con cambios, tests, limitaciones, comandos locales y alcance propuesto de Goal #4.
+
+**Estado de cierre: pausado por el usuario, trabajo detenido, Goal #3 pendiente.** Las secciones siguientes conservan el historial previo sin convertirlo en aceptación del objetivo actual.
 
 ---
 

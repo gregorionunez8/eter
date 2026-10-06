@@ -1,4 +1,4 @@
-import { npcs } from './content';
+import { npcs, spots } from './content';
 import type { Obstacle, Point } from './model';
 
 export const world = { name: 'Aurelia', halfSize: 80, safeHalfSize: 23, cellSize: 1, playerRadius: 0.45, spawn: { x: 0, z: 10 } };
@@ -17,6 +17,15 @@ export const obstacles: Obstacle[] = [
     [-17, 17, 7, 4], [17, 17, 7, 4], [-17, -20, 7, 4], [17, -20, 7, 4],
   ].map(([x, z, width, depth], i): Obstacle => ({ id: `house-${i}`, x, z, width, depth, kind: 'building' })),
   ...npcs.map((npc): Obstacle => ({ id: `npc-${npc.id}`, x: npc.x, z: npc.z, width: 0.7, depth: 0.7, kind: 'npc' })),
+  ...[
+    ['forge', -10, 5, 1.2, 1], ['alchemy', 10, 5, 1.2, 1],
+    ['weapon-rack', -19.5, 11, 1.2, 0.6], ['arcane-desk', 19.5, 11, 1.2, 0.6], ['bow-rack', 19.5, -15, 1.2, 0.6],
+    ['cart-west', -8, 18, 2.6, 1.5], ['cart-east', 8, 18, 2.6, 1.5],
+    ['bench-west', -9, -17, 2.5, 0.8], ['bench-east', 9, -17, 2.5, 0.8],
+    ['planter-west', -22, 9, 0.8, 3], ['planter-east', 22, 9, 0.8, 3],
+    ['planter-northwest', -22, -11, 0.8, 3], ['planter-northeast', 22, -11, 0.8, 3],
+    ['farm-fence-south', 17, 25, 5, 0.35], ['farm-fence-east', 21, 29, 0.35, 6],
+  ].map(([id, x, z, width, depth]): Obstacle => ({ id: String(id), x: Number(x), z: Number(z), width: Number(width), depth: Number(depth), kind: 'prop' })),
 ];
 // Deterministic scenery keeps client rendering and server collision identical.
 for (let i = 0; i < 80; i++) {
@@ -25,6 +34,15 @@ for (let i = 0; i < 80; i++) {
   if (Math.abs(x) < 27 && Math.abs(z) < 27) continue;
   if (Math.abs(x) < 5 || Math.abs(z) < 5) continue;
   obstacles.push({ id: `scenery-${i}`, x, z, width: 1.8, depth: 1.8, kind: x > 30 ? 'rock' : 'tree' });
+}
+// Forest edges surround stable, open farming clearings rather than filling them.
+for (let i = 0; i < 70; i++) {
+  const x = -29 - ((i * 19.731) % 47), z = 7 + ((i * 31.913) % 65);
+  if (spots.some(s => distance(s, { x, z }) < s.radius + 4) || obstacles.some(o => distance(o, { x, z }) < 3)) continue;
+  obstacles.push({ id: `woodland-${i}`, x, z, width: 1.6, depth: 1.6, kind: 'tree' });
+}
+for (const [i, [x, z, width, depth]] of [[74, 6, 5, 8], [74, -9, 5, 9], [73, 26, 6, 7], [37, 25, 5, 7], [39, -26, 6, 5]].entries()) {
+  obstacles.push({ id: `ridge-${i}`, x, z, width, depth, kind: 'rock' });
 }
 export function inSafeZone(point: Point): boolean {
   return Math.abs(point.x) <= world.safeHalfSize && Math.abs(point.z) <= world.safeHalfSize;

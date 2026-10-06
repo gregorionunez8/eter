@@ -1,6 +1,6 @@
 # Éter
 
-Vertical slice MMORPG 3D original para navegador. Aurelia es una ciudad segura alrededor de un cristal de Éter, con cuatro regiones exteriores y progresión por combate. Goal #1 verificado: 19 tests de servidor y 7 tests Chrome aprobados. La evidencia y sus límites están en `docs/verification.md`.
+Vertical slice MMORPG 3D original para navegador. Aurelia es una ciudad segura alrededor de un cristal de Éter, con cuatro regiones exteriores y progresión por combate. Goals #1 y #2 están completos y verificados: mundo medieval detallado, personajes equipados/animados, combate legible, interfaz de MMORPG y administración estructurada sobre la arquitectura autoritativa existente. La evidencia y sus límites están en `docs/verification.md`; la arquitectura visual y las guías de contenido están en `docs/goal-2-development.md`.
 
 ## Instalación y ejecución
 
@@ -46,8 +46,11 @@ El servidor de aceptación usa `tests/browser/server.ts`, que fija la semilla de
 
 ## Arquitectura
 
-- `client/main.ts`: autenticación, personajes, HUD, cuadrículas, NPCs y panel admin.
-- `client/scene.ts`: Three.js, geometría original procedural, cámara, picking, animaciones e interpolación.
+- `client/main.ts`: autenticación, personajes, HUD, cuadrículas y NPCs; administración carga un bundle separado.
+- `client/scene.ts`: Three.js, cámara, picking, sincronización e interpolación.
+- `client/actors.ts`, `character-art.ts`, `materials.ts`, `environment.ts`: anatomía/ropa CC0 adaptada, monstruos originales, equipo visible, materiales y mundo detallado.
+- `client/effects.ts`, `loot.ts`, `audio.ts`: feedback sincronizado con eventos, drops físicos y audio original.
+- `client/admin.ts`: formularios de contenido, spots, jugadores y herramientas administrativas.
 - `server/index.ts`: HTTP, sesiones, WebSockets, límites y rutas protegidas.
 - `server/game.ts`: simulación autoritativa; solo recibe intenciones validadas.
 - `server/database.ts`: SQLite, cuentas, personajes, sesiones, configuración y ledger de recursos.
@@ -78,9 +81,11 @@ Registrá primero una cuenta normal y luego, con la misma ruta de DB:
 npm.cmd run admin -- nombreDeUsuario
 ```
 
-Iniciá sesión con esa cuenta y abrí `/admin`. Usuarios normales o anónimos reciben 403. El panel edita JSON validado para monstruos, spots, drop rates, precios, día/noche, EXP, bonus de reset y pérdida al morir. Guardar persiste en DB; reiniciá el servidor para aplicar el contenido de forma coherente. Las herramientas admin actúan sobre personajes conectados: teleport, spawn, añadir recursos, establecer nivel y reset de prueba. Los IDs se pueden mostrar en Opciones del juego para admins.
+Iniciá sesión con esa cuenta y abrí `/admin`. Usuarios normales o anónimos reciben 403. El panel ofrece trece secciones con formularios para balance, monstruos, spots, items, skills, tiendas, economía, resets y mundo; JSON queda como opción avanzada. Guardar valida el documento completo y persiste en SQLite; reiniciá el servidor para aplicar el contenido coherentemente. Los borradores permanecen al navegar entre secciones. Los spots permiten crear, duplicar, deshabilitar y eliminar. Las herramientas sobre personajes conectados incluyen teleport, spawn, añadir/quitar recursos, nivel, reset de prueba, curar y restaurar mana; las acciones se auditan. Los IDs se pueden mostrar en Opciones del juego para admins. La promoción de la cuenta no requiere reinicio; cambiar configuración sí.
 
 ## Modificar contenido
+
+Para ajustar contenido existente, usá primero las secciones de `/admin`; no hace falta editar JSON. La guía `docs/goal-2-development.md` explica validación, aplicación tras reiniciar y cómo agregar nuevas familias visuales.
 
 Editar `shared/content.ts` y reiniciar. Monstruos en `monsters`: HP, daño, defensa, XP, speed, aggroRange, leashRange y attackMs. Spots en `spots`: monsterId, x/z, radius, count y respawnMs. Items en `items`: tamaño, slot, requisitos, affinity, daño/defensa, precio y durabilidad. Skills en `skills`: kind, mana, cooldownMs, range, multiplier, durationMs y slowMs. NPCs en `npcs`: posición, diálogo y catálogo. Obstáculos y mapa en `shared/world.ts`.
 
@@ -96,4 +101,4 @@ Clic suelo: caminar. Clic monstruo: seleccionar, acercarse y atacar. Clic loot: 
 
 Instalar dependencias con lockfile (`npm ci`), compilar y ejecutar `npm start` en un proceso Node persistente con volumen duradero para `data`. Configurar `HOST=0.0.0.0` solo si corresponde, `COOKIE_SECURE=true`, proxy HTTPS con soporte WebSocket para `/ws`, y el mismo host público para HTTP/WS. No usar hosting estático solo: la simulación necesita servidor persistente. Para diez jugadores usar una instancia; las herramientas administrativas deben permanecer protegidas. Hacer backups de SQLite mediante mecanismo coherente con WAL y cerrar el servidor limpiamente para el guardado final.
 
-Arte: todas las figuras, edificios, árboles, cristal y efectos se crean con geometría y materiales propios; sonidos opcionales sintetizados con Web Audio. No se incluyen assets de MU ni otros juegos. Estado de pruebas y pendientes: `docs/verification.md`.
+Arte: anatomía y ropa humana CC0 de Quaternius adaptada a Éter; armaduras, armas, monstruos no humanos, edificios, árboles, superficies, iconos y efectos originales. Sonidos opcionales sintetizados con Web Audio. La entrada usa una pintura original generada, separada de la presentación 3D real del juego. Fuentes, licencias y modificaciones en `ASSET_CREDITS.md`. No se incluyen assets de MU ni otros juegos. Estado de pruebas y pendientes: `docs/verification.md`.

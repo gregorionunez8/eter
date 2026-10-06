@@ -29,8 +29,8 @@ export interface Character {
 /** Resource ledger supports future trade, upgrades, crafting and combinations. */
 export interface ResourceTransaction {
   id: string; characterId: string; resource: 'crowns' | 'ether'; amount: number;
-  reason: 'loot' | 'purchase' | 'repair' | 'trade' | 'upgrade' | 'craft' | 'combination';
+  reason: 'loot' | 'purchase' | 'repair' | 'trade' | 'upgrade' | 'craft' | 'combination' | 'admin';
   referenceId: string; timestamp: number;
 }
 export interface Point { x: number; z: number }
-export interface Obstacle { id: string; x: number; z: number; width: number; depth: number; kind: 'building' | 'wall' | 'tree' | 'rock' | 'npc' | 'crystal' }
+export interface Obstacle { id: string; x: number; z: number; width: number; depth: number; kind: 'building' | 'wall' | 'tree' | 'rock' | 'npc' | 'crystal' | 'prop' }

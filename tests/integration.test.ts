@@ -22,7 +22,9 @@ test('real HTTP/WS server handles ten users, authoritative contested combat, adm
   let child: ChildProcess | undefined, output = '';
   const clients: { cookie: string; character: Character; socket: WebSocket; state?: Snapshot; snapshots: number; notices: string[] }[] = [];
   async function start(): Promise<void> {
-    child = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server/index.ts', '--production'], { cwd: resolve('.'), env: { ...process.env, PORT: '3200', DATABASE_PATH: path }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    // Import tsx directly so the tracked process owns SQLite; killing a CLI
+    // wrapper on Windows can leave its server child holding the database open.
+    child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--production'], { cwd: resolve('.'), env: { ...process.env, PORT: '3200', DATABASE_PATH: path }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     child.stdout?.on('data', data => { output += String(data); }); child.stderr?.on('data', data => { output += String(data); });
     await until(async () => { try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; } }, 20000);
   }
@@ -84,5 +86,5 @@ test('real HTTP/WS server handles ten users, authoritative contested combat, adm
     assert.equal((await request('/api/logout', 'POST', undefined, clients[1].cookie)).status, 200);
     assert.equal((await request('/api/me', 'GET', undefined, clients[1].cookie)).status, 401);
     assert.ok(!output.includes('uncaughtException'), output);
-  } finally { await stop(); rmSync(folder, { recursive: true }); }
+  } finally { await stop(); rmSync(folder, { recursive: true, maxRetries: 10, retryDelay: 100 }); }
 });

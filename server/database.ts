@@ -5,6 +5,7 @@ import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypt
 import { balance, classes, formulas, items, skills, type ClassId } from '../shared/content';
 import { world } from '../shared/world';
 import type { Character, ResourceTransaction } from '../shared/model';
+import { freeCell } from './inventory';
 
 export interface Account { id: string; username: string; admin: boolean }
 export class Store {
@@ -18,7 +19,35 @@ export class Store {
       CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS resource_ledger(id TEXT PRIMARY KEY, character_id TEXT NOT NULL, resource TEXT NOT NULL, amount INTEGER NOT NULL, reason TEXT NOT NULL, reference_id TEXT NOT NULL, timestamp INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS admin_actions(id TEXT PRIMARY KEY, account_id TEXT NOT NULL, character_id TEXT, operation TEXT NOT NULL, details TEXT NOT NULL, timestamp INTEGER NOT NULL);
     `);
+    this.migrateEquipment();
+  }
+  /** Versioned, transactional JSON migration; IDs, durability and modifiers remain intact. */
+  private migrateEquipment(): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const rows = this.db.prepare("SELECT id,data FROM characters WHERE json_type(data,'$.equipment.armor') IS NOT NULL").all();
+      for (const row of rows) {
+        const character = JSON.parse(String(row.data)) as Character;
+        const equipment = character.equipment as Character['equipment'] & { armor?: import('../shared/model').ItemInstance };
+        const legacy = equipment.armor;
+        if (!legacy) { delete equipment.armor; }
+        else {
+          if (!equipment.chest) equipment.chest = legacy;
+          else if (equipment.chest.id !== legacy.id) {
+            // Preserve both items if an imported save contains both old and new slots.
+            const cell = freeCell(character.sanctum, legacy);
+            if (!cell) throw new Error(`Equipment migration requires Sanctum space for ${character.id}`);
+            character.sanctum.push({ ...legacy, ...cell });
+          }
+          delete equipment.armor;
+        }
+        this.db.prepare('UPDATE characters SET data=? WHERE id=?').run(JSON.stringify(character), String(row.id));
+      }
+      this.db.prepare("INSERT INTO settings(key,value) VALUES('schema.equipment','2') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); this.db.close(); throw error; }
   }
   register(username: string, password: string): Account {
     if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) throw new Error('Usuario: 3–24 letras, números o guion bajo.');
@@ -47,6 +76,9 @@ export class Store {
   }
   logout(token: string): void { this.db.prepare('DELETE FROM sessions WHERE token=?').run(token); }
   makeAdmin(username: string): boolean { return this.db.prepare('UPDATE accounts SET admin=1 WHERE username=?').run(username).changes > 0; }
+  logAdmin(accountId: string, characterId: string | null, operation: string, details: unknown): void {
+    this.db.prepare('INSERT INTO admin_actions VALUES(?,?,?,?,?,?)').run(randomUUID(), accountId, characterId, operation, JSON.stringify(details), Date.now());
+  }
   characters(accountId: string): Character[] {
     return this.db.prepare('SELECT data FROM characters WHERE account_id=?').all(accountId).map(row => JSON.parse(String(row.data)) as Character);
   }
@@ -65,9 +97,14 @@ export class Store {
       id: randomUUID(), accountId, name, classId, level: 1, xp: 0, resets: 0, stats, freePoints: 0,
       crowns: 50, ether: 0, sanctum: [], unlockedSkills: skills.filter(s => s.classId === classId).map(s => s.id),
       ...world.spawn, hp: formulas.maxHp(stats), mana: formulas.maxMana(stats),
-      inventory: ['hp-potion', 'hp-potion', 'mana-potion', 'mana-potion'].map((definitionId, x) => ({ id: randomUUID(), definitionId, x, y: 0, durability: 0, modifiers: {}, upgradeLevel: 0, metadata: {} })),
-      equipment: { weapon: { id: randomUUID(), definitionId: starter, x: 0, y: 0, durability: weapon.durability!, modifiers: {}, upgradeLevel: 0, metadata: {} } },
+      inventory: [],
+      equipment: { weapon: { id: randomUUID(), definitionId: starter, x: 0, y: 0, durability: weapon.durability!, modifiers: { ...weapon.properties }, upgradeLevel: 0, metadata: {} } },
     };
+    for (const definitionId of ['hp-potion', 'hp-potion', 'mana-potion', 'mana-potion']) {
+      const item = { id: randomUUID(), definitionId, x: 0, y: 0, durability: 0, modifiers: {}, upgradeLevel: 0, metadata: {} };
+      const cell = freeCell(character.inventory, item); if (!cell) throw new Error('Configuración inicial de mochila inválida.');
+      character.inventory.push({ ...item, ...cell });
+    }
     try { this.db.prepare('INSERT INTO characters VALUES(?,?,?,?)').run(character.id, accountId, name, JSON.stringify(character)); }
     catch { throw new Error('El nombre de personaje ya existe.'); }
     return character;

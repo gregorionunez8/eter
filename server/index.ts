@@ -69,19 +69,32 @@ const server = createServer(async (req, res) => {
       if (!account?.admin) { if (path === '/admin') { res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Acceso exclusivo para administradores.'); } else json(res, 403, { error: 'Acceso exclusivo para administradores.' }); return; }
       if (path === '/api/admin/config') {
         if (req.method === 'PUT') {
-          const config = validateConfig(await body(req));
+          const config = validateConfig(await body(req), store);
           store.setSetting('content', config);
+          store.logAdmin(account.id, null, 'config', config);
           json(res, 200, { ok: true, message: 'Guardado. Reiniciá el servidor para aplicar todos los cambios de forma segura.' });
-        } else json(res, 200, getConfig());
+        } else { const saved = store.getSetting<{ version?: number }>('content'); json(res, 200, saved?.version === 2 ? saved : getConfig()); }
         return;
       }
-      if (path === '/api/admin/players') { json(res, 200, [...game.players.values()].map(p => ({ id: p.character.id, name: p.character.name, level: p.character.level }))); return; }
+      if (path === '/api/admin/players') {
+        json(res, 200, store.db.prepare('SELECT data FROM characters').all().map(row => {
+          const saved = JSON.parse(String(row.data)) as import('../shared/model').Character;
+          const c = game.players.get(saved.id)?.character ?? saved;
+          return { id: c.id, name: c.name, classId: c.classId, level: c.level, resets: c.resets, crowns: c.crowns, ether: c.ether, hp: c.hp, mana: c.mana, x: c.x, z: c.z, stats: c.stats, equipment: c.equipment, online: game.players.has(c.id) };
+        })); return;
+      }
+      if (path === '/api/admin/overview') {
+        json(res, 200, { players: game.players.size, monsters: game.creatures.size, uptime: Math.floor(process.uptime()), audit: store.db.prepare('SELECT operation,character_id,timestamp FROM admin_actions ORDER BY timestamp DESC LIMIT 20').all() }); return;
+      }
       if (path === '/api/admin/action' && req.method === 'POST') {
-        const input = z.object({ characterId: z.string(), operation: z.enum(['teleport', 'crowns', 'ether', 'level', 'reset', 'spawn']), amount: z.number().finite().min(0).max(1000000).optional(), x: z.number().finite().min(-78).max(78).optional(), z: z.number().finite().min(-78).max(78).optional(), monsterId: z.string().optional() }).strict().parse(await body(req));
+        const input = z.object({ characterId: z.string().max(80), operation: z.enum(['teleport', 'crowns', 'ether', 'level', 'reset', 'spawn', 'heal', 'mana']), amount: z.number().int().min(-1000000).max(1000000).optional(), x: z.number().finite().min(-78).max(78).optional(), z: z.number().finite().min(-78).max(78).optional(), monsterId: z.string().max(40).optional() }).strict().parse(await body(req));
         const player = game.players.get(input.characterId); if (!player) throw new Error('El personaje debe estar conectado.');
         const c = player.character;
+        const before = { level: c.level, resets: c.resets, crowns: c.crowns, ether: c.ether, hp: c.hp, mana: c.mana, x: c.x, z: c.z };
         if (input.operation === 'teleport') { const point = { x: input.x ?? 0, z: input.z ?? 10 }; if (!walkable(point)) throw new Error('Destino bloqueado.'); Object.assign(c, point); player.path = []; player.targetId = undefined; }
-        if (input.operation === 'crowns' || input.operation === 'ether') game.resource(c, input.operation, Math.floor(input.amount ?? 100), 'loot', 'admin');
+        if (input.operation === 'crowns' || input.operation === 'ether') game.resource(c, input.operation, input.amount ?? 100, 'admin', 'admin');
+        if (input.operation === 'heal') c.hp = formulas.maxHp(c.stats);
+        if (input.operation === 'mana') c.mana = formulas.maxMana(c.stats);
         if (input.operation === 'level') {
           const target = Math.min(balance.maxLevel, Math.max(1, Math.floor(input.amount ?? 2)));
           c.freePoints += Math.max(0, target - c.level) * balance.pointsPerLevel; c.level = target; c.xp = 0; c.hp = formulas.maxHp(c.stats); c.mana = formulas.maxMana(c.stats);
@@ -92,7 +105,7 @@ const server = createServer(async (req, res) => {
           const point = { x: input.x ?? c.x + 3, z: input.z ?? c.z }; if (!walkable(point) || (Math.abs(point.x) <= 23 && Math.abs(point.z) <= 23)) throw new Error('Spawn fuera de la ciudad y obstáculos.');
           game.spawn({ id: 'admin', monsterId: def.id, ...point, radius: 0, count: 1, respawnMs: 20000 }, def);
         }
-        store.save(c); json(res, 200, { ok: true }); return;
+        store.save(c); store.logAdmin(account.id, c.id, input.operation, { input, before, after: { level: c.level, resets: c.resets, crowns: c.crowns, ether: c.ether, hp: c.hp, mana: c.mana, x: c.x, z: c.z } }); json(res, 200, { ok: true }); return;
       }
     }
     if (path.startsWith('/api/')) { json(res, 404, { error: 'Ruta inexistente.' }); return; }

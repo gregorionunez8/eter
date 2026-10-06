@@ -42,6 +42,20 @@ test('authentication, session expiration/revocation, classes and account isolati
 test('untrusted rewards, invalid coordinates and unknown fields are rejected by the protocol', () => {
   for (const packet of [{ type: 'damage', amount: 99999 }, { type: 'move', x: 0, z: 0, crowns: 999999 }, { type: 'stat', stat: 'strength', amount: -5 }, { type: 'move', x: Infinity, z: 2 }, { type: 'equip', itemId: 'a', slot: 'other' }]) assert.equal(actionSchema.safeParse(packet).success, false);
 });
+test('stop freezes authoritative movement and cancels pending automatic combat approach', () => {
+  const { game, ca, pa, advance, store } = setup(() => 0);
+  game.action(ca.id, { type: 'move', x: 0, z: 20 }); advance(500);
+  game.action(ca.id, { type: 'stop' }); const stopped = { x: ca.x, z: ca.z }; advance(2000);
+  assert.deepEqual({ x: ca.x, z: ca.z }, stopped); assert.equal(pa.animation, 'idle');
+  assert.equal(actionSchema.safeParse({ type: 'stop', x: 79, z: 79 }).success, false);
+  Object.assign(ca, { x: 8, z: 30 });
+  const target = [...game.creatures.values()].find(m => m.definitionId === 'sproutling')!;
+  Object.assign(target, { x: 8, z: 38, home: { x: 8, z: 38 } });
+  game.action(ca.id, { type: 'skill', skillId: 'heavy-slash', targetId: target.id }); advance(100);
+  game.action(ca.id, { type: 'stop' }); const approach = { x: ca.x, z: ca.z }; advance(3000);
+  assert.deepEqual({ x: ca.x, z: ca.z }, approach); assert.equal(pa.targetId, undefined); assert.equal(pa.pendingSkill, undefined); assert.equal(target.hp, 45);
+  store.close();
+});
 test('normal combat approaches, kills shared monster, grants XP and produces physical loot', () => {
   const { game, ca, cb, pa, advance, store } = setup(() => 0);
   Object.assign(ca, { x: 8, z: 30 }); Object.assign(cb, { x: 10, z: 30 });
@@ -143,8 +157,8 @@ test('aggro attacks outside safe zone; safe city prevents attacks; death conserv
 });
 test('death can drop at most one equipped item, special items can be excluded', () => {
   const { game, ca, pa, store } = setup(() => 0);
-  ca.equipment.armor = game.newItem('linen-armor'); ca.equipment.armor.deathDropProtected = true;
-  game.die(pa); assert.equal(Object.keys(ca.equipment).length, 1); assert.ok(ca.equipment.armor);
+  ca.equipment.chest = game.newItem('linen-armor'); ca.equipment.chest.deathDropProtected = true;
+  game.die(pa); assert.equal(Object.keys(ca.equipment).length, 1); assert.ok(ca.equipment.chest);
   assert.equal([...game.loot.values()].filter(d => d.kind === 'item').length, 1); store.close();
 });
 test('multiple resets restore base stats and preserve equipment, bags, storage and currencies', () => {

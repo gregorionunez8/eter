@@ -1,4 +1,18 @@
-# Éter — estado actual después de reanudar Goal #1
+# Éter — Goal #2 completo y verificado
+
+Actualizado el 2026-10-06. **Goal #2 completo y verificado.** Se preservaron Three.js/Vite, Node HTTP/WebSocket autoritativo, SQLite y todos los sistemas de Goal #1. La transformación incluye anatomía/ropa humana CC0 adaptada, monstruos originales animados, equipo visible, migración segura `armor` → `chest`, Aurelia detallada, armilar de Éter, regiones distintas, materiales originales, iluminación, combate/loot/audio e interfaces de juego y administración nuevas.
+
+- `npm.cmd test`: **30/30 aprobados**, incluyendo migración/reopen/idempotencia, configuración validada/persistente, layouts pendientes seguros, metadata futura, aggro y stop autoritativo. Se conservaron las regresiones de Goal #1.
+- `npm.cmd run test:e2e`: **10/10 aprobados**, cero fallos/skips/flaky, 7.0 minutos. TypeScript y build final aprobados; JS principal 704.94 kB / 194.12 kB gzip, con advertencia de tamaño de Vite. Admin y GLTFLoader son chunks separados.
+- Dos Chrome renderizando + ocho WS: mediana **21.3–21.9 ms**, p95 **34.0–35.9 ms**, 356–364 draws, ~621–624k triángulos, ~10.01 snapshots/s. RTX 3080 Ti; no es benchmark de hardware mínimo. Conteos GPU estables: 610 geometrías/214 texturas antes y después del intervalo observado.
+- SwiftShader: dos clientes y dos reconexiones aprobados; segundo arranque **22.096 s**. Fallback 20 FPS, ratio 0.65 y materiales simplificados; no se promete rendimiento gamer con render por CPU.
+- Recorrido real sin helpers admin: salir caminando en nivel 1, War Cry, seis bajas, drops y pickup manual, nivel 2, +5 Vitalidad, equipar el ID de espada obtenido, volver, comprar poción, reparar y depositar/retirar el mismo item en Sanctum. Loop observado ~30.8 s; balance sigue provisional.
+
+Se inspeccionaron capturas reales de entrada, selección/tres clases, ciudad día/noche, todas las regiones/familias, skills, inventario/equipo/stats, tiendas, Sanctum y admin. La revisión llevó a reemplazar humanos demasiado simples, retargetear pesos suaves, corregir pelo flotante, adelgazar la anatomía del lobo, reducir el tamaño del pavimento, aclarar hierba oscura y corregir deriva al interactuar. También se corrigieron IDs SVG y batching incompatibles. La pintura de entrada no sustituye evidencia del mundo jugable.
+
+Guías: `docs/goal-2-development.md`; aceptación/evidencia/límites: `docs/verification.md`; fuentes: `ASSET_CREDITS.md`. No se introdujeron features de Goal #3. Quedan oportunidades profesionales en animación, sets completos, criaturas y foley/música; no se suministró música de baja calidad. Una consulta de solo lectura observó `gregoriorr.admin = 1`; esta tarea no ejecutó promoción sobre la DB del propietario. Promociones y cambios de fixtures quedaron en DBs aisladas. Los informes de Goal #1 que siguen son historial.
+
+# Éter — estado después de reanudar Goal #1 (historial)
 
 Actualizado el 2026-10-05. **Goal #1 verificado.** Se continuó desde los commits `a07b287` y `8bffb35`, preservando Three.js/Vite, Node HTTP/WebSockets, SQLite, simulación autoritativa y contenido compartido. La auditoría vigente es `docs/verification.md`; el informe de la sesión anterior permanece íntegro debajo como historial, y sus pendientes ya resueltos no describen el estado actual.
 

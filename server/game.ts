@@ -28,7 +28,7 @@ export class Game {
   now: number;
   constructor(readonly store: Store, readonly random: () => number = Math.random, readonly clock: () => number = Date.now) {
     this.now = clock();
-    for (const spot of spots) for (let i = 0; i < spot.count; i++) this.spawn(spot);
+    for (const spot of spots) if (spot.enabled !== false) for (let i = 0; i < spot.count; i++) this.spawn(spot);
   }
   spawn(spot: Spot, def?: MonsterDefinition): MonsterRuntime {
     let point: Point = { x: spot.x, z: spot.z };
@@ -59,6 +59,11 @@ export class Game {
     const c = player.character;
     try {
       switch (action.type) {
+        case 'stop': {
+          player.path = []; player.targetId = undefined; player.pendingSkill = undefined;
+          if (player.animation === 'walk') player.animation = 'idle';
+          break;
+        }
         case 'move': {
           const path = findPath(c, action);
           if (!path.length) throw new Error('Destino bloqueado.');
@@ -91,7 +96,7 @@ export class Game {
             if (!cell) throw new Error('Inventario lleno.');
             c.inventory.push({ ...drop.item!, ...cell }); this.store.save(c);
           } else this.resource(c, drop.kind, drop.amount, 'loot', drop.id);
-          this.loot.delete(drop.id); player.send({ type: 'effect', kind: 'pickup', x: drop.x, z: drop.z }); break;
+          this.loot.delete(drop.id); player.send({ type: 'effect', kind: 'pickup', x: drop.x, z: drop.z, sourceId: c.id, lootKind: drop.kind }); break;
         }
         case 'stat': {
           if (c.freePoints < action.amount) throw new Error('Puntos insuficientes.');
@@ -144,10 +149,11 @@ export class Game {
           this.nearNpc(c, action.npcId);
           if (!npcs.find(n => n.id === action.npcId)!.shop.includes(action.itemId)) throw new Error('El NPC no vende ese objeto.');
           const def = items.find(i => i.id === action.itemId)!;
-          if (c.crowns < def.price) throw new Error('Crowns insuficientes.');
+          const price = Math.ceil(def.price * balance.npcPriceMultiplier);
+          if (c.crowns < price) throw new Error('Crowns insuficientes.');
           const item = this.newItem(def.id), cell = freeCell(c.inventory, item);
           if (!cell) throw new Error('Inventario lleno.');
-          c.inventory.push({ ...item, ...cell }); this.resource(c, 'crowns', -def.price, 'purchase', item.id); break;
+          c.inventory.push({ ...item, ...cell }); this.resource(c, 'crowns', -price, 'purchase', item.id); break;
         }
         case 'sell': {
           this.nearNpc(c, action.npcId);
@@ -170,14 +176,14 @@ export class Game {
       }
     } catch (error) { this.notify(player, error instanceof Error ? error.message : 'Acción inválida.'); }
   }
-  resource(c: Character, resource: 'crowns' | 'ether', amount: number, reason: 'loot' | 'purchase' | 'repair', referenceId: string): void {
+  resource(c: Character, resource: 'crowns' | 'ether', amount: number, reason: 'loot' | 'purchase' | 'repair' | 'admin', referenceId: string): void {
     if (!Number.isSafeInteger(amount) || c[resource] + amount < 0) throw new Error('Transacción inválida.');
     c[resource] += amount;
     this.store.saveWithTransaction(c, { id: randomUUID(), characterId: c.id, resource, amount, reason, referenceId, timestamp: this.now });
   }
   newItem(definitionId: string): ItemInstance {
     const def = items.find(i => i.id === definitionId)!;
-    return { id: randomUUID(), definitionId, x: 0, y: 0, durability: def.durability ?? 0, modifiers: {}, upgradeLevel: 0, metadata: {} };
+    return { id: randomUUID(), definitionId, x: 0, y: 0, durability: def.durability ?? 0, modifiers: { ...def.properties }, upgradeLevel: 0, metadata: {} };
   }
   reset(c: Character): void {
     if (c.level !== balance.maxLevel) throw new Error(`El reset requiere nivel ${balance.maxLevel}.`);
@@ -207,10 +213,11 @@ export class Game {
     const def = monsters.find(m => m.id === monster.definitionId)!;
     const spot = spots.find(s => s.id === monster.spotId);
     monster.hp = 0; monster.respawnAt = this.now + (spot?.respawnMs ?? 20000); monster.targetId = undefined; monster.path = []; monster.animation = 'dead';
+    for (const other of this.players.values()) other.send({ type: 'effect', kind: 'death', x: monster.x, z: monster.z, targetId: monster.id });
     this.grantXp(player, def.xp);
     if (this.random() < (def.drops?.crownsChance ?? balance.crownsDropChance)) this.addLoot(player, monster, 'crowns', balance.crownsBaseAmount + def.level * balance.crownsPerMonsterLevel + Math.floor(this.random() * balance.crownsRandomAmount));
     if (this.random() < (def.drops?.etherChance ?? balance.etherDropChance)) this.addLoot(player, { x: monster.x + 0.65, z: monster.z }, 'ether', 1);
-    const table = def.drops?.itemIds ?? itemDropTable;
+    const table = (def.drops?.itemIds ?? itemDropTable).filter(id => items.find(i => i.id === id)?.dropEligible !== false);
     if (table.length && this.random() < (def.drops?.itemChance ?? balance.itemDropChance)) {
       const item = this.newItem(table[Math.floor(this.random() * table.length)]);
       this.addLoot(player, { x: monster.x - 0.65, z: monster.z }, 'item', 1, item);
@@ -218,6 +225,7 @@ export class Game {
   }
   die(player: PlayerRuntime): void {
     const c = player.character;
+    for (const other of this.players.values()) other.send({ type: 'effect', kind: 'death', x: c.x, z: c.z, targetId: c.id });
     const eligible = Object.entries(c.equipment).filter(([, item]) => !item.deathDropProtected);
     if (eligible.length && this.random() < balance.equippedItemDropChanceOnDeath) {
       const [slot, item] = eligible[Math.floor(this.random() * eligible.length)];
@@ -228,7 +236,7 @@ export class Game {
     player.path = []; player.targetId = undefined; player.pendingSkill = undefined; player.buffs = {}; player.animation = 'idle';
     this.store.save(c); this.notify(player, 'Reapareciste en Aurelia. Conservaste tu experiencia y recursos.');
   }
-  damage(player: PlayerRuntime, monster: MonsterRuntime, multiplier: number, magic = classes[player.character.classId].magic): void {
+  damage(player: PlayerRuntime, monster: MonsterRuntime, multiplier: number, magic = classes[player.character.classId].magic, skillId?: string): void {
     if (monster.hp <= 0 || inSafeZone(player.character)) return;
     const c = player.character, def = monsters.find(m => m.id === monster.definitionId)!;
     const base = magic ? formulas.magicDamage(c.stats) : formulas.physicalDamage(c.stats);
@@ -237,13 +245,14 @@ export class Game {
     const amount = Math.max(1, Math.round((base + equipment) * multiplier * buff - def.defense));
     monster.hp -= amount; monster.targetId = c.id;
     player.animation = 'attack'; player.animationUntil = this.now + 350;
-    for (const other of this.players.values()) other.send({ type: 'effect', kind: magic ? 'magic' : 'hit', x: monster.x, z: monster.z, amount, sourceId: c.id, targetId: monster.id });
+    for (const other of this.players.values()) other.send({ type: 'effect', kind: magic ? 'magic' : 'hit', x: monster.x, z: monster.z, amount, sourceId: c.id, targetId: monster.id, skillId });
     const weapon = c.equipment.weapon;
     if (weapon) weapon.durability = Math.max(0, weapon.durability - balance.durabilityLossPerAttack);
     if (monster.hp <= 0) this.kill(player, monster);
   }
   cast(player: PlayerRuntime, skill: SkillDefinition, target?: MonsterRuntime, point?: Point): void {
     const c = player.character;
+    const origin = { x: c.x, z: c.z };
     if (c.mana < skill.mana || (player.cooldowns[skill.id] ?? 0) > this.now) return;
     if (skill.kind === 'blink') {
       const dest = point ?? { x: c.x, z: c.z + skill.range };
@@ -255,7 +264,7 @@ export class Game {
       const length = distance(c, target), ratio = Math.max(0, (length - 1.8) / length);
       const end = { x: c.x + (target.x - c.x) * ratio, z: c.z + (target.z - c.z) * ratio };
       if (!clearSegment(c, end)) return;
-      Object.assign(c, end); this.damage(player, target, skill.multiplier, false);
+      Object.assign(c, end); this.damage(player, target, skill.multiplier, false, skill.id);
     } else if (skill.kind === 'buff' || skill.kind === 'mobility') player.buffs[skill.id] = this.now + skill.durationMs!;
     else if (skill.kind === 'heal') { c.hp = Math.min(formulas.maxHp(c.stats), c.hp + formulas.maxHp(c.stats) * skill.multiplier); player.buffs[skill.id] = this.now + skill.durationMs!; }
     else if (skill.kind === 'area' || skill.kind === 'cone') {
@@ -264,13 +273,13 @@ export class Game {
         if (monster.hp <= 0 || distance(c, monster) > skill.range || !clearSegment(c, monster)) continue;
         const angle = Math.atan2(monster.z - c.z, monster.x - c.x);
         if (skill.kind === 'cone' && Math.cos(angle - direction) < 0.5) continue;
-        this.damage(player, monster, skill.multiplier);
+        this.damage(player, monster, skill.multiplier, classes[c.classId].magic, skill.id);
         if (skill.slowMs) monster.slowUntil = this.now + skill.slowMs;
       }
-    } else if (target) this.damage(player, target, skill.multiplier);
+    } else if (target) this.damage(player, target, skill.multiplier, classes[c.classId].magic, skill.id);
     c.mana -= skill.mana; player.cooldowns[skill.id] = this.now + skill.cooldownMs;
     player.pendingSkill = undefined; player.animation = 'skill'; player.animationUntil = this.now + 500;
-    player.send({ type: 'effect', kind: skill.kind, x: c.x, z: c.z, sourceId: c.id }); this.store.save(c);
+    for (const other of this.players.values()) other.send({ type: 'effect', kind: skill.kind, x: c.x, z: c.z, sourceId: c.id, targetId: target?.id, skillId: skill.id, fromX: origin.x, fromZ: origin.z }); this.store.save(c);
   }
   stepPath(entity: Point, path: Point[], speed: number, dt: number): boolean {
     let remaining = speed * dt;
@@ -303,6 +312,7 @@ export class Game {
           if (skill) this.cast(player, skill, target);
           else if (player.attackAt <= this.now) {
             if (this.random() < formulas.accuracy(c.stats, monsters.find(m => m.id === target.definitionId)!.level)) this.damage(player, target, 1);
+            else { player.animation = 'attack'; player.animationUntil = this.now + 350; for (const other of this.players.values()) other.send({ type: 'effect', kind: 'miss', x: target.x, z: target.z, sourceId: c.id, targetId: target.id }); }
             player.attackAt = this.now + formulas.attackCooldownMs(c.stats);
           }
         }
@@ -318,18 +328,20 @@ export class Game {
         continue;
       }
       let target = monster.targetId ? this.players.get(monster.targetId) : undefined;
-      if (target && (inSafeZone(target.character) || distance(monster.home, target.character) > def.leashRange)) { monster.targetId = undefined; target = undefined; }
-      if (!target && def.aggroRange > 0) {
+      if (target && (inSafeZone(target.character) || distance(monster.home, target.character) > def.leashRange || distance(monster, target.character) > (def.chaseDistance ?? def.leashRange))) { monster.targetId = undefined; target = undefined; }
+      if (!target && def.aggroMode !== 'passive' && def.aggroRange > 0) {
         target = [...this.players.values()].filter(p => !inSafeZone(p.character) && distance(monster, p.character) <= def.aggroRange && distance(monster.home, p.character) <= def.leashRange).sort((a, b) => distance(monster, a.character) - distance(monster, b.character))[0];
         monster.targetId = target?.character.id;
       }
       if (target) {
-        if (distance(monster, target.character) <= 1.9 && clearSegment(monster, target.character)) {
+        if (distance(monster, target.character) <= (def.attackRange ?? 1.9) && clearSegment(monster, target.character)) {
           monster.path = []; monster.animation = 'attack';
           if (monster.attackAt <= this.now) {
             const c = target.character;
             const armor = Object.values(c.equipment).reduce((sum, i) => sum + (canEquip(c, i, definition(i).slot!) ? effectiveValue(c, i, 'defense') : 0), 0);
-            c.hp -= Math.max(1, def.damage - formulas.defense(c.stats) - armor);
+            const received = Math.max(1, def.damage - formulas.defense(c.stats) - armor);
+            c.hp -= received;
+            for (const other of this.players.values()) other.send({ type: 'effect', kind: 'received', x: c.x, z: c.z, amount: received, sourceId: monster.id, targetId: c.id });
             for (const item of Object.values(c.equipment)) if (definition(item).defense) item.durability = Math.max(0, item.durability - balance.durabilityLossPerHit);
             monster.attackAt = this.now + def.attackMs;
             if (c.hp <= 0) this.die(target);
@@ -348,7 +360,7 @@ export class Game {
   snapshot(player: PlayerRuntime): unknown {
     return {
       type: 'state', now: this.now, self: player.character, cooldowns: player.cooldowns, buffs: player.buffs,
-      players: [...this.players.values()].map(p => ({ id: p.character.id, name: p.character.name, classId: p.character.classId, x: p.character.x, z: p.character.z, hp: p.character.hp, maxHp: formulas.maxHp(p.character.stats), animation: p.animation })),
+      players: [...this.players.values()].map(p => ({ id: p.character.id, name: p.character.name, classId: p.character.classId, x: p.character.x, z: p.character.z, hp: p.character.hp, maxHp: formulas.maxHp(p.character.stats), animation: p.animation, equipment: Object.fromEntries(Object.entries(p.character.equipment).map(([slot, item]) => [slot, item.definitionId])) })),
       monsters: [...this.creatures.values()].map(({ path, nextPathAt, ...m }) => m), loot: [...this.loot.values()],
     };
   }

@@ -3,6 +3,7 @@ import { equipmentSlots } from './content';
 export const pointSchema = z.object({ x: z.number().finite().min(-79).max(79), z: z.number().finite().min(-79).max(79) }).strict();
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('move'), ...pointSchema.shape }).strict(),
+  z.object({ type: z.literal('stop') }).strict(),
   z.object({ type: z.literal('attack'), targetId: z.string().max(80) }).strict(),
   z.object({ type: z.literal('skill'), skillId: z.string().max(40), targetId: z.string().max(80).optional(), point: pointSchema.optional() }).strict(),
   z.object({ type: z.literal('pickup'), lootId: z.string().max(80) }).strict(),

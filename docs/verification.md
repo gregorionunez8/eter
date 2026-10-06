@@ -1,4 +1,60 @@
-# Auditoría de aceptación de Éter — Goal #1
+# Verificación de Éter — Goal #2 completo
+
+2026-10-06. **Goal #2 completo y verificado.** Goal #1 y su arquitectura se preservan; su auditoría histórica se conserva debajo. La aceptación se basa en regresión, juego real en Chrome y revisión de imágenes del mundo jugable, no solamente en código o pintura de entrada.
+
+## Ejecución final y condiciones de Goal #2
+
+- Baseline antes de cambiar: **19/19 servidor y 7/7 Chrome** verdes.
+- `npm.cmd test`: **30/30 aprobados**. Reglas/persistencia/multiplayer originales, migración transaccional `armor` → `chest`, instancias/idempotencia, validación/config persistente, spots, pasivos que se defienden, layouts pendientes adquiridos antes de reinicio, metadata futura y stop autoritativo sin coordenadas ni recompensas.
+- `npm.cmd run test:e2e`: **10/10 aprobados**, 0 fallos, 0 skips, 0 flaky. Ejecución final comenzó `2026-10-06T04:04:38.496Z`, duración **419.894 s**. Incluye TypeScript y Vite production. JS principal **704.94 kB / 194.12 kB gzip**, admin 16.94/6.71 kB y GLTFLoader 43.80/12.88 kB en chunks separados. Advertencia de Vite >500 kB, sin error de build.
+- Se conservaron los siete escenarios originales. Los tres nuevos cubren movimiento sostenido por clic, formularios admin/CRUD/auditoría y el recorrido principiante sin helpers. Las pruebas no reducen validación ni autoridad del servidor.
+- Se inspeccionaron imágenes reales de entrada/selección, tres clases, Aurelia día/noche, cuatro regiones, ocho familias, equipo inicial/mejorado, tooltip, stats, tienda, Sanctum y administración. Se corrigieron humanos demasiado simples, pelo flotante, anatomía redonda del lobo, hierba negra, pavimento demasiado grande, IDs SVG y batching incompatible. La cámara inicial ahora usa half-height 14, límites 12–26.
+- Los eventos de las doce skills se ejecutaron por teclado y se verificaron efectos presentados en frames, cooldown y proyectiles de Arcanist/Ranger. Éter apareció mediante muerte y pickup real, permaneciendo físico al ocultar nombres y persistiendo tras reconnect. Ocho rutas de obstáculos se caminaron con posiciones autoritativas caminables.
+
+### Gameplay principiante sin admin
+
+El décimo escenario registra Vanguard nivel 1, sale caminando, usa War Cry, selecciona/ataca Sproutlings, obtiene EXP y recoge los drops físicos. En la corrida final: **6 bajas**, **nivel 2**, **+5 Vitalidad**, espada de hierro obtenida/equipada por ID exacto y **109 Crowns** al terminar. Regresa caminando, compra una poción por 15 Crowns, repara y deposita/retira el mismo item en Sanctum. Recorrido observado **30.842 s**, sin promoción, teleport, spawn ni créditos admin. La semilla de test hace el resultado repetible; no garantiza ese drop/tiempo en partidas con azar normal.
+
+La revisión encontró una deriva al llegar a NPC/loot: el jugador abría el servicio y seguía caminando. Ahora envía la intención estricta `stop` al llegar; el servidor limpia path/target/skill pendiente manteniendo la posición actual. Un nuevo clic cancela intenciones viejas del cliente. La regresión de servidor verifica ausencia de movimiento posterior y rechazo de coordenadas inyectadas.
+
+### Performance medida
+
+RTX 3080 Ti, Chrome headless con ANGLE D3D11, 1440×900, sombras activas. **Dos navegadores renderizando y ocho clientes WS** moviéndose; no diez navegadores gráficos.
+
+| Métrica | Chrome A | Chrome B |
+| --- | --- | --- |
+| Frame mediano | 21.3 ms | 21.9 ms |
+| Frame p95 | 34.0 ms | 35.9 ms |
+| Render mediano | 14.0 ms | 14.3 ms |
+| Draw calls | 356 | 364 |
+| Triángulos renderizados | 620,820 | 624,300 |
+
+Las ocho conexiones WS recibieron **10.01 snapshots/s**; interpolación observada. Contadores GPU antes/después del intervalo: **610/610 geometrías y 214/214 texturas**. No errores Three/WebGL recurrentes ni pageerrors en los escenarios cubiertos. Los 401 del sondeo de sesión antes del registro son respuestas esperadas. El escenario SwiftShader inició dos mundos, mantuvo HUD y reconectó B dos veces; segundo arranque **22.096 s**. El fallback limita a 20 FPS, pixel ratio 0.65 y elimina sombras/bump/reflejos/normal-ORM importados.
+
+Hay mayor costo que el prototipo de Goal #1 (~5 ms y ~13k triángulos) por el contenido/modelos nuevos. Esto verifica carga local estable, **no 60 FPS garantizados, hardware mínimo ni auditoría prolongada de heap**. Rendering CPU es más lento y no representa una PC gamer con GPU.
+
+### Aceptación visual y funcional (secciones 74–81)
+
+| Área | Resultado revisado |
+| --- | --- |
+| Mundo | Aurelia con mampostería, vigas, ventanas, puertas, tejados, fuentes, carros/mesas/jardineras; armilar de Éter; materiales texturados; campos, bosque, roca y ruinas con identidades distintas; noche legible y luces emisivas graduales |
+| Personajes | Vanguard masculino armado, Arcanist masculino con túnica/staff, Ranger femenina con capucha/bow; anatomía y ropa CC0 con pesos suaves, añadidos originales, caminar/atacar/castear/hit/muerte/interactuar y equipo visible |
+| Monstruos | Ocho familias originales reconocibles; lobo con torso/morro/cola esculpidos, insectos segmentados, plantas y golem rocoso; humanoides Rogue/Orc adaptados; idle/locomoción/ataque/hit/muerte |
+| Combate | Picking ampliado e indicadores, acercamiento/rango autoritativos, trails/impacto, números diferenciados, doce skills y proyectiles desde manos/objetivos válidos |
+| Movimiento/cámara | Clic y clic sostenido, parada precisa de interacción, ocho rutas de obstáculos, límites 12–26 y framing inicial más cercano |
+| UI | Login pintado, selección 3D, HUD compacto, iconos originales, cooldown/mana/selección, bolsas multi-cell, once slots/paper doll, Pechera sin Armor/Set adicional, tooltip, stats, NPCs y Sanctum |
+| Admin | Trece secciones, formularios/search/drafts, CRUD de spots, bounded validation, persistencia/reinicio, inspección de jugadores y herramientas auditadas; JSON avanzado; no-admin rechazado |
+| Regresión/performance | 30 servidor + 10 Chrome, build, multiplayer/persistencia, estados de equipo distintos, dos clientes GPU/CPU y recursos estables en intervalo observado |
+
+### Capturas y límites
+
+Artifacts locales ignorados por git, reemplazados por cada corrida: `test-results/results.json` y PNGs. Login/selección: `login.png`, `selection-{vanguard,arcanist,ranger}.png`; mundo: `aurelia-*.png`, `day.png`, `night.png`, `region-*.png`; combate/loot: `skills-*.png`, `ether-drop.png`, `ether-without-labels.png`; UI: `inventory-equipment-*.png`, `equipment-armored.png`, `vanguard-armored.png`, `character-sheet.png`, `npc-shop.png`, `sanctum.png`; admin: `admin-monsters.png`, `admin-spots.png`, `admin-player-tools.png`; experiencia natural: `beginner-farming.png`, `beginner-sanctum.png`. Adjuntos JSON incluyen rutas, efectos, performance, software-startup y natural-beginner-loop.
+
+Los fixtures de arte usan configuración temporal (3101, ciclo 10 s, Éter 100%, aggro 0); equipo/admin usan herramientas declaradas en DB de test. No cambian cuentas/config del propietario. `tests/browser/server.ts` rechaza resetear cualquier DB que no sea `data/e2e.sqlite`. Una consulta de solo lectura al final observó `gregoriorr.admin=1`; esta tarea no ejecutó promoción sobre `data/eter.sqlite`. Promover roles no requiere reiniciar; aplicar config guardada y cargar este código nuevo sí.
+
+La pintura de entrada es arte atmosférico original, no evidencia del mapa. Fuentes y CC0: `ASSET_CREDITS.md`. Música por región tiene arquitectura, sin tracks suministrados; foley/ambiente sintetizados opcionales. Sets futuros, Luck y modifiers son metadata preparada, sin upgrades ni fórmulas nuevas. No se agregaron features de Goal #3. Modelos/armaduras y animación son una base funcional clásica; futuras inversiones profesionales beneficiarían sets específicos, animaciones hand-keyed, criaturas y audio. No quedan bloqueos funcionales conocidos en los escenarios de aceptación cubiertos.
+
+# Auditoría de aceptación de Éter — Goal #1 (historial)
 
 Fecha: 2026-10-05. **Goal #1 verificado: 19 tests de servidor/mundo/integración y 7 tests Chrome aprobados en la ejecución final, sin fallos, skips ni resultados flaky.** TypeScript y build de producción aprobados contra el código final. Esta auditoría sustituye los estados preliminares anteriores; el informe original se conserva en PROGRESS.md como historial.
 

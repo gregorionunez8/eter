@@ -9,13 +9,14 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { getConfig } from '../../server/config';
 import { obstacles, walkable, clearSegment, findPath } from '../../shared/world';
-import { skills } from '../../shared/content';
+import { skills, items } from '../../shared/content';
 
 declare global { interface Window { eterDiagnostics: (point?: Point) => ReturnType<Scene['diagnostics']> | undefined } }
 type State = { type: string; now: number; self: Character; cooldowns: Record<string, number>; players: { id: string; x: number; z: number }[]; monsters: { id: string; definitionId: string; x: number; z: number; hp: number }[]; loot: { id: string; kind: string; ownerId: string; x: number; z: number; exclusiveUntil: number; item?: { id: string; definitionId: string } }[] };
 function observe(page: Page) {
   const observed = { state: undefined as State | undefined, frames: [] as { now: number; x: number; z: number }[], errors: [] as string[] };
   page.on('pageerror', error => observed.errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error' && /THREE\.|WebGL/.test(message.text())) observed.errors.push(message.text()); });
   page.on('websocket', socket => {
     socket.on('framereceived', frame => {
       const value = JSON.parse(String(frame.payload)) as State;
@@ -50,13 +51,13 @@ async function walkTo(page: Page, state: ReturnType<typeof observe>, point: Poin
 }
 
 const nonce = Date.now().toString(36);
-async function clickVisibleSprout(page: Page): Promise<string> {
+async function clickVisibleSprout(page: Page, aliveIds?: string[]): Promise<string> {
   let hit: { id: string; x: number; y: number } | undefined;
   await expect.poll(async () => {
-    hit = await page.locator('.monster-label').filter({ hasText: 'Sproutling' }).evaluateAll(elements => elements.map(el => {
+    hit = await page.locator('.monster-label').filter({ hasText: 'Sproutling' }).evaluateAll((elements, alive) => elements.filter(el => !alive || alive.includes((el as HTMLElement).dataset.entityId!)).map(el => {
       const rect = el.getBoundingClientRect(), x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
       return { id: (el as HTMLElement).dataset.entityId!, x, y, reachable: rect.width > 0 && x > 20 && x < 1200 && y > 150 && y < 650 && document.elementFromPoint(x, y)?.closest('[data-entity-id]') === el };
-    }).filter(value => value.reachable).sort((a, b) => Math.hypot(a.x - 720, a.y - 430) - Math.hypot(b.x - 720, b.y - 430))[0]);
+    }).filter(value => value.reachable).sort((a, b) => Math.hypot(a.x - 720, a.y - 430) - Math.hypot(b.x - 720, b.y - 430))[0], aliveIds);
     return !!hit;
   }).toBe(true);
   await page.mouse.click(hit!.x, hit!.y); return hit!.id;
@@ -67,12 +68,18 @@ async function register(page: Page, suffix: string, classId: string, base = ''):
   page.on('websocket', socket => { if (socket.url().includes('/ws?')) { console.log(`Socket ${suffix}: connected`); let frames = 0; socket.on('framereceived', frame => { if (frames++ < 2) console.log(`Frame ${suffix}: ${String(frame.payload).slice(0, 100)}`); }); socket.on('socketerror', error => console.log(`Socket ${suffix}: ${error}`)); } });
   const username = `test_${nonce}_${suffix}`;
   await page.goto(`${base}/?diagnostics=1`);
+  if (suffix === 'class0') {
+    await page.evaluate(async () => { const art = new Image(); art.src = '/art/aurelia-entry.png'; await art.decode(); });
+    await page.screenshot({ path: 'test-results/login.png' });
+  }
   await page.locator('[name="username"]').fill(username); await page.locator('[name="password"]').fill('browser-secure-password');
   await page.getByRole('button', { name: 'Crear cuenta', exact: true }).click();
   await page.locator('[name="name"]').fill(`H${nonce.slice(-6)}${suffix}`); await page.locator(`[name="classId"][value="${classId}"]`).check();
   await page.getByRole('button', { name: 'Crear personaje', exact: true }).click();
   const card = page.locator('[data-character]').first(); await expect(card).toBeVisible(); const characterId = await card.getAttribute('data-character');
-  await card.click(); await expect(page.locator('#character-name')).toContainText(`H${nonce.slice(-6)}`, { timeout: 90000 });
+  await card.click();
+  if (suffix.startsWith('class')) { await expect(page.locator('#character-preview canvas')).toBeVisible(); await page.waitForTimeout(200); await page.screenshot({ path: `test-results/selection-${classId.toLowerCase()}.png` }); }
+  await page.locator('#enter-world').click(); await expect(page.locator('#character-name')).toContainText(`H${nonce.slice(-6)}`, { timeout: 90000 });
   await expect(page.locator('#viewport canvas')).toBeVisible();
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-ready', 'true', { timeout: 15000 });
   return { username, characterId: characterId! };
@@ -80,6 +87,7 @@ async function register(page: Page, suffix: string, classId: string, base = ''):
 test('Chrome renders original 3D Aurelia, click walking, UI grids and each class', async ({ browser, page }) => {
   test.setTimeout(300000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error' && /THREE\.|WebGL/.test(message.text())) errors.push(message.text()); });
   for (const [index, classId] of ['VANGUARD', 'ARCANIST', 'RANGER'].entries()) {
     if (index) { await page.getByRole('button', { name: 'Opciones', exact: true }).click(); await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click(); }
     await register(page, `class${index}`, classId);
@@ -90,6 +98,8 @@ test('Chrome renders original 3D Aurelia, click walking, UI grids and each class
     await page.locator('#viewport canvas').click({ position: { x: 720, y: 620 } });
     await expect.poll(() => page.locator('#coordinates').textContent()).not.toBe(before);
     await page.keyboard.press('i'); await expect(page.locator('.inventory-grid')).toBeVisible(); await expect(page.locator('[data-slot]')).toHaveCount(11);
+    await page.locator('[data-slot="weapon"]').hover(); await expect(page.locator('.item-tooltip')).toBeVisible();
+    await page.screenshot({ path: `test-results/inventory-equipment-${classId.toLowerCase()}.png` });
     await page.locator('[data-slot="weapon"]').click(); await expect(page.locator('[data-slot="weapon"] strong')).toHaveText('—');
     const weapon = page.locator('.item').filter({ hasText: classId === 'VANGUARD' ? 'Espada' : classId === 'ARCANIST' ? 'Bastón' : 'Arco' }); await weapon.dblclick();
     await expect(page.locator('[data-slot="weapon"] strong')).not.toHaveText('—');
@@ -100,6 +110,22 @@ test('Chrome renders original 3D Aurelia, click walking, UI grids and each class
     await page.screenshot({ path: `test-results/aurelia-${classId.toLowerCase()}.png` });
   }
   expect(errors).toEqual([]);
+});
+
+test('held ground click continues walking with the camera and release finishes precisely at the last destination', async ({ page }) => {
+  test.setTimeout(45000);
+  const observed = observe(page), destinations: Point[] = [];
+  page.on('websocket', socket => socket.on('framesent', frame => { const value = JSON.parse(String(frame.payload)) as Point & { type: string }; if (value.type === 'move') destinations.push({ x: value.x, z: value.z }); }));
+  await register(page, 'held', 'VANGUARD');
+  const projected = await page.evaluate(() => window.eterDiagnostics({ x: 0, z: 20 })!.projected!);
+  await page.mouse.move(projected.x, projected.y); await page.mouse.down();
+  await expect.poll(() => observed.state!.self.z, { timeout: 12000 }).toBeGreaterThan(26);
+  await page.mouse.up(); const count = destinations.length, last = destinations.at(-1)!;
+  expect(count).toBeGreaterThan(5); expect(last.z).toBeGreaterThan(26);
+  await expect.poll(() => Math.hypot(observed.state!.self.x - last.x, observed.state!.self.z - last.z)).toBeLessThan(0.6);
+  await page.waitForTimeout(300); expect(destinations).toHaveLength(count);
+  for (const frame of observed.frames) expect(walkable(frame)).toBe(true);
+  expect(observed.errors).toEqual([]);
 });
 
 test('two actual Chrome clients share monsters, combat, exclusive loot, public pickup after 30s and persistent progress', async ({ browser }, testInfo) => {
@@ -125,7 +151,7 @@ test('two actual Chrome clients share monsters, combat, exclusive loot, public p
     for (let join = 0; join < 2; join++) {
       await b.getByRole('button', { name: 'Personajes', exact: true }).click();
       await expect.poll(() => A.state!.players.length).toBe(1);
-      await b.locator(`[data-character="${playerB.characterId}"]`).click();
+      await b.locator(`[data-character="${playerB.characterId}"]`).click(); await b.locator('#enter-world').click();
       await expect(b.locator('#viewport canvas')).toHaveAttribute('data-ready', 'true', { timeout: 15000 });
       await expect.poll(() => A.state!.players.length).toBe(2);
     }
@@ -180,7 +206,7 @@ test('two actual Chrome clients share monsters, combat, exclusive loot, public p
         await clickEntity(a, item.id);
         await expect.poll(() => A.state!.self.inventory.some(i => i.id === item.item!.id)).toBe(true);
         await a.keyboard.press('i'); await a.locator(`[data-item="${item.item!.id}"]`).dblclick();
-        equippedSlot = item.item!.definitionId === 'iron-sword' ? 'weapon' : item.item!.definitionId === 'linen-armor' ? 'armor' : 'boots';
+        equippedSlot = item.item!.definitionId === 'iron-sword' ? 'weapon' : item.item!.definitionId === 'linen-armor' ? 'chest' : 'boots';
         await expect.poll(() => A.state!.self.equipment[equippedSlot!]?.id).toBe(item.item!.id);
         await expect(a.locator(`[data-slot="${equippedSlot}"] strong`)).not.toHaveText('—');
         equippedId = item.item!.id; await a.keyboard.press('Escape');
@@ -192,7 +218,7 @@ test('two actual Chrome clients share monsters, combat, exclusive loot, public p
     const saved = { xp: A.state!.self.xp, level: A.state!.self.level, crowns: A.state!.self.crowns, equipment: A.state!.self.equipment[equippedSlot!] };
     await a.getByRole('button', { name: 'Personajes', exact: true }).click();
     await expect.poll(() => B.state!.players.length).toBe(1);
-    await a.locator(`[data-character="${playerA.characterId}"]`).click();
+    await a.locator(`[data-character="${playerA.characterId}"]`).click(); await a.locator('#enter-world').click();
     await expect(a.locator('#viewport canvas')).toHaveAttribute('data-ready', 'true');
     await expect.poll(() => A.state!.self.equipment[equippedSlot!]?.id).toBe(equippedId);
     expect(A.state!.self.equipment[equippedSlot!]).toEqual(saved.equipment);
@@ -202,7 +228,7 @@ test('two actual Chrome clients share monsters, combat, exclusive loot, public p
     await a.getByRole('button', { name: 'Cerrar sesión', exact: true }).click();
     await a.locator('[name="username"]').fill(playerA.username); await a.locator('[name="password"]').fill('browser-secure-password');
     await a.getByRole('button', { name: 'Entrar', exact: true }).click();
-    await a.locator(`[data-character="${playerA.characterId}"]`).click();
+    await a.locator(`[data-character="${playerA.characterId}"]`).click(); await a.locator('#enter-world').click();
     await expect(a.locator('#viewport canvas')).toHaveAttribute('data-ready', 'true');
     await expect.poll(() => A.state!.self.equipment[equippedSlot!]?.id).toBe(equippedId);
     expect(A.state!.self.xp).toBe(saved.xp); expect(A.state!.self.crowns).toBe(saved.crowns);
@@ -214,6 +240,8 @@ test('admin page and privileged commands are protected from ordinary users', asy
   const response = await page.goto('/admin'); expect(response?.status()).toBe(403);
   await register(page, 'security', 'RANGER');
   expect((await page.request.get('/api/admin/config')).status()).toBe(403);
+  expect((await page.request.get('/api/admin/players')).status()).toBe(403);
+  expect((await page.request.get('/api/admin/overview')).status()).toBe(403);
   expect((await page.request.post('/api/admin/action', { data: { operation: 'level', amount: 500 } })).status()).toBe(403);
 });
 
@@ -230,21 +258,87 @@ test('NPC shops, potions, manual stats, Sanctum, repair and the admin editor wor
   await page.keyboard.press('w'); await expect(page.locator('#mana-potion span')).toHaveText('1');
   expect((await page.request.post('/api/admin/action', { data: { characterId: player.characterId, operation: 'level', amount: 2 } })).ok()).toBeTruthy();
   await page.keyboard.press('c'); await expect(page.locator('.points')).toContainText('5 puntos');
+  await page.screenshot({ path: 'test-results/character-sheet.png' });
   await page.locator('[data-stat="vitality"][data-amount="5"]').click(); await expect(page.locator('.points')).toContainText('0 puntos');
   await page.keyboard.press('Escape'); await teleport(12, 7);
   await page.locator('[data-entity-id="npc-lyra"]').click(); await page.locator('[data-buy="hp-potion"]').click(); await expect(page.locator('#crowns')).toContainText('35');
+  await page.screenshot({ path: 'test-results/npc-shop.png' });
   await page.keyboard.press('Escape'); await teleport(-12, -5);
   await page.locator('[data-entity-id="npc-orin"]').click();
   const inventory = page.locator('.inventory-grid[data-container="inventory"]'), sanctum = page.locator('.inventory-grid[data-container="sanctum"]');
   await inventory.locator('.item').first().dblclick(); await expect(sanctum.locator('.item')).toHaveCount(1);
+  await page.screenshot({ path: 'test-results/sanctum.png' });
   await sanctum.locator('.item').first().dblclick(); await expect(sanctum.locator('.item')).toHaveCount(0);
   await page.keyboard.press('Escape'); await teleport(-12, 6);
   await page.locator('[data-entity-id="npc-brom"]').click(); await page.locator('#repair').click(); await expect(page.locator('#notices')).toContainText('reparado');
-  await page.goto('/admin'); await expect(page.locator('#config-editor')).toBeVisible();
+  // Equipment presentation fixture; purchases and equipping still use authoritative commands.
+  expect((await page.request.post('/api/admin/action', { data: { characterId: player.characterId, operation: 'crowns', amount: 2000 } })).ok()).toBe(true);
+  expect((await page.request.post('/api/admin/action', { data: { characterId: player.characterId, operation: 'level', amount: 19 } })).ok()).toBe(true);
+  await page.keyboard.press('Escape'); await page.keyboard.press('c');
+  for (let i = 0; i < 17; i++) { await page.locator('[data-stat="strength"][data-amount="5"]').click(); await expect(page.locator('.points')).toContainText(`${(16 - i) * 5} puntos`); }
+  await page.keyboard.press('Escape'); await page.locator('[data-entity-id="npc-brom"]').click();
+  let gearCrowns = 2035;
+  for (const [id, price] of [['steel-armor', 900], ['bronze-helmet', 90], ['wooden-shield', 120]] as const) { await page.locator(`[data-buy="${id}"]`).click(); gearCrowns -= price; await expect(page.locator('#crowns')).toContainText(String(gearCrowns)); }
+  await page.keyboard.press('Escape'); await page.keyboard.press('i');
+  for (const [name, slot] of [['Pechera de acero', 'chest'], ['Casco de bronce', 'helmet'], ['Escudo de roble', 'offhand']]) {
+    await page.locator('.item').filter({ hasText: name }).dblclick(); await expect(page.locator(`[data-slot="${slot}"] strong`)).toHaveText(name);
+  }
+  await page.screenshot({ path: 'test-results/equipment-armored.png' }); await page.keyboard.press('Escape');
+  await teleport(0, 10); await page.waitForTimeout(400); await page.screenshot({ path: 'test-results/vanguard-armored.png' });
+  await page.goto('/admin'); await page.locator('[data-section="RAW CONFIG"]').click(); await expect(page.locator('#config-editor')).toBeVisible();
   const original = await page.locator('#config-editor').inputValue(), config = JSON.parse(original) as { balance: { dayNightCycleDuration: number } }; config.balance.dayNightCycleDuration = 120000;
   await page.locator('#config-editor').fill(JSON.stringify(config, null, 2)); await page.getByRole('button', { name: 'Guardar configuración' }).click(); await expect(page.locator('#error')).toContainText('Guardado');
   // Restore baseline settings for other browser runs. Restart application is tested by integration.
   await page.locator('#config-editor').fill(original); await page.getByRole('button', { name: 'Guardar configuración' }).click();
+});
+
+test('structured admin forms persist content, reject invalid config, manage spots and audit signed resources', async ({ page, context }) => {
+  test.setTimeout(120000);
+  const player = await register(page, 'forms', 'VANGUARD');
+  const store = new Store('data/e2e.sqlite'); expect(store.makeAdmin(player.username)).toBe(true); store.close();
+  const original = await (await page.request.get('/api/admin/config')).json();
+  const control = await context.newPage(); control.on('dialog', dialog => dialog.accept());
+  try {
+    await control.goto('/admin'); await expect(control.locator('[data-section]')).toHaveCount(13);
+    await expect(control.locator('textarea')).toHaveCount(0);
+    await control.locator('[data-section="BALANCE"]').click();
+    await control.locator('[data-path="balance.experienceBase"]').fill(String(original.balance.experienceBase + 1));
+    await control.locator('[data-section="MONSTERS"]').click();
+    await control.locator('[data-path="monsters.0.hp"]').fill(String(original.monsters[0].hp + 1));
+    await control.screenshot({ path: 'test-results/admin-monsters.png' });
+    await control.locator('[data-section="ITEMS"]').click();
+    const necklaceIndex = original.items.findIndex((item: { id: string }) => item.id === 'copper-necklace');
+    await control.locator(`[data-entry="${necklaceIndex}"]`).click(); await control.locator('.admin-properties summary').click();
+    await control.locator(`[data-path="items.${necklaceIndex}.properties.luck"]`).fill('3');
+    await control.locator('[data-section="SPOTS"]').click();
+    await control.locator('#new-spot').click(); await control.locator('#duplicate-spot').click(); await control.locator('#delete-spot').click();
+    await control.locator('[data-path^="spots."][type="checkbox"]').uncheck();
+    await control.screenshot({ path: 'test-results/admin-spots.png' });
+    await control.locator('#save-config').click(); await expect(control.locator('#error')).toContainText('Guardado');
+    const saved = await (await page.request.get('/api/admin/config')).json();
+    expect(saved.balance.experienceBase).toBe(original.balance.experienceBase + 1); expect(saved.monsters[0].hp).toBe(original.monsters[0].hp + 1);
+    expect(saved.items[necklaceIndex].properties.luck).toBe(3);
+    expect(saved.spots).toHaveLength(original.spots.length + 1); expect(saved.spots.at(-1).enabled).toBe(false);
+    await control.reload(); await control.locator('[data-section="BALANCE"]').click();
+    await expect(control.locator('[data-path="balance.experienceBase"]')).toHaveValue(String(saved.balance.experienceBase));
+    const invalid = structuredClone(saved); invalid.monsters[0].hp = 0;
+    expect((await page.request.put('/api/admin/config', { data: invalid })).status()).toBe(400);
+    expect(await (await page.request.get('/api/admin/config')).json()).toEqual(saved);
+    for (const section of ['ITEMS', 'SKILLS', 'NPCS / SHOPS', 'ECONOMY', 'RESETS', 'WORLD']) {
+      await control.locator(`[data-section="${section}"]`).click(); await expect(control.locator('[data-path]').first()).toBeVisible(); await expect(control.locator('textarea')).toHaveCount(0);
+    }
+    await control.locator('[data-section="PLAYERS"]').click(); await control.locator('#player-search').fill(`H${nonce.slice(-6)}forms`);
+    await expect(control.locator('[data-player]')).toHaveCount(1);
+    const crownsBefore = await page.locator('#crowns').textContent();
+    await control.locator('[data-section="DEVELOPER TOOLS"]').click(); await control.locator('#admin-player').selectOption(player.characterId);
+    await control.locator('#admin-operation').selectOption('crowns'); await control.locator('#admin-amount').fill('25'); await control.locator('#admin-action button[type="submit"]').click();
+    await expect(page.locator('#crowns')).toContainText('75');
+    await control.locator('#admin-operation').selectOption('crowns'); await control.locator('#admin-amount').fill('-25'); await control.locator('#admin-action button[type="submit"]').click();
+    await expect(page.locator('#crowns')).toHaveText(crownsBefore!);
+    expect((await page.request.post('/api/admin/action', { data: { characterId: player.characterId, operation: 'crowns', amount: -1000000 } })).status()).toBe(400);
+    const overview = await (await page.request.get('/api/admin/overview')).json(); expect(overview.audit.filter((entry: { operation: string; character_id: string }) => entry.operation === 'crowns' && entry.character_id === player.characterId)).toHaveLength(2);
+    await control.screenshot({ path: 'test-results/admin-player-tools.png' });
+  } finally { expect((await page.request.put('/api/admin/config', { data: original })).ok()).toBe(true); await control.close(); }
 });
 
 test('production visuals: physical Ether, day/night, twelve skills, projectiles, zoom and obstacle routes', async ({ page }, testInfo) => {
@@ -258,7 +352,7 @@ test('production visuals: physical Ether, day/night, twelve skills, projectiles,
   let child: ChildProcess | undefined, output = '';
   const observed = observe(page);
   try {
-    child = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server/index.ts', '--production'], { env: { ...process.env, HOST: '127.0.0.1', PORT: '3101', DATABASE_PATH: database }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--production'], { env: { ...process.env, HOST: '127.0.0.1', PORT: '3101', DATABASE_PATH: database }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     child.stdout?.on('data', data => { output += String(data); }); child.stderr?.on('data', data => { output += String(data); });
     await expect.poll(async () => { try { return (await page.request.get(`${base}/api/health`)).ok(); } catch { return false; } }, { timeout: 20000 }).toBe(true);
     let player = await register(page, 'visual0', 'VANGUARD', base);
@@ -297,9 +391,9 @@ test('production visuals: physical Ether, day/night, twelve skills, projectiles,
     await expect(page.locator('#notices')).toContainText('bloqueado');
     expect(observed.state!.self.x).toBe(-4);
     await page.locator('#viewport canvas').hover(); await page.mouse.wheel(0, -10000);
-    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(14);
+    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(12);
     await page.mouse.wheel(0, 10000);
-    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(34);
+    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(26);
     await page.mouse.wheel(0, -667);
     await teleport({ x: 0, z: 10 });
     await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.daylight), { timeout: 12000, intervals: [100] }).toBeGreaterThan(0.95);
@@ -308,6 +402,21 @@ test('production visuals: physical Ether, day/night, twelve skills, projectiles,
     const night = await page.evaluate(() => window.eterDiagnostics()); await page.screenshot({ path: 'test-results/night.png' });
     expect(day!.sun - night!.sun).toBeGreaterThan(2); expect(night!.ambient).toBeGreaterThanOrEqual(1.4); expect(night!.sun).toBeGreaterThanOrEqual(0.7);
     await testInfo.attach('day-night-lighting', { body: JSON.stringify({ day, night }), contentType: 'application/json' });
+    for (const region of [
+      { name: 'greenfields', x: 0, z: 32, monsters: ['sproutling', 'wild-beetle'] },
+      { name: 'whisperwood', x: -46, z: 22, monsters: ['forest-wolf', 'thornling', 'rogue'] },
+      { name: 'stonepass', x: 48, z: 8, monsters: ['stone-beetle', 'orc-scout', 'stone-golem'] },
+      { name: 'ether-ruins', x: 0, z: -51, monsters: ['stone-golem'] },
+    ]) {
+      const point = [{ x: region.x, z: region.z }, { x: region.x + 1, z: region.z }, { x: region.x - 1, z: region.z }].find(walkable)!;
+      await teleport(point);
+      for (const [index, monsterId] of region.monsters.entries()) {
+        const position = [{ x: point.x - 3 + index * 3, z: point.z - 3 }, { x: point.x - 3 + index * 3, z: point.z - 4 }].find(walkable)!;
+        await admin('spawn', { monsterId, ...position });
+      }
+      await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.daylight), { timeout: 12000, intervals: [100] }).toBeGreaterThan(0.8);
+      await page.screenshot({ path: `test-results/region-${region.name}.png` });
+    }
     await teleport({ x: 0, z: 30 });
     const before = new Set(observed.state!.monsters.map(m => m.id));
     await admin('spawn', { monsterId: 'sproutling', x: 0, z: 33 });
@@ -331,13 +440,13 @@ test('production visuals: physical Ether, day/night, twelve skills, projectiles,
     expect((await page.evaluate(() => window.eterDiagnostics()!.drops)).some(d => d.id === ether.id)).toBe(true);
     await teleport({ x: -3, z: 31 });
     await page.locator('#viewport canvas').hover(); await page.mouse.wheel(0, -10000);
-    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(14);
+    await expect.poll(() => page.evaluate(() => window.eterDiagnostics()!.zoom)).toBe(12);
     const crystal = await page.evaluate(p => window.eterDiagnostics(p)!.projected!, { x: ether.x, z: ether.z });
     await page.screenshot({ path: 'test-results/ether-without-labels.png', clip: { x: crystal.x - 140, y: crystal.y - 120, width: 280, height: 200 } });
     await page.getByRole('button', { name: 'Loot: OFF', exact: true }).click();
     await clickEntity(page, ether.id); await expect.poll(() => observed.state!.self.ether).toBe(1);
     await page.getByRole('button', { name: 'Personajes', exact: true }).click();
-    await page.locator(`[data-character="${player.characterId}"]`).click();
+    await page.locator(`[data-character="${player.characterId}"]`).click(); await page.locator('#enter-world').click();
     await expect(page.locator('#ether')).toContainText('1 Éter');
     for (const [index, classId] of ['VANGUARD', 'ARCANIST', 'RANGER'].entries()) {
       if (index) {
@@ -370,7 +479,7 @@ test('production visuals: physical Ether, day/night, twelve skills, projectiles,
   } finally {
     await page.goto('about:blank');
     if (child && child.exitCode === null) { const exited = new Promise<void>(resolve => child!.once('exit', () => resolve())); child.kill(); await exited; }
-    rmSync(folder, { recursive: true });
+    rmSync(folder, { recursive: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -408,7 +517,11 @@ test('two rendering Chrome clients remain responsive with ten connected players'
         await pages[0].waitForTimeout(100);
       }
     })()]);
+    const memoryBefore = await pages[0].evaluate(() => window.eterDiagnostics()!.memory);
     await pages[0].waitForTimeout(6000);
+    const memoryAfter = await pages[0].evaluate(() => window.eterDiagnostics()!.memory);
+    expect(memoryAfter.geometries).toBeLessThanOrEqual(memoryBefore.geometries + 10);
+    expect(memoryAfter.textures).toBeLessThanOrEqual(memoryBefore.textures + 3);
     expect(interpolated, 'rendered movement follows authoritative positions with interpolation').toBe(true);
     const elapsed = (Date.now() - started) / 1000;
     const snapshotRates = clients.map((c, i) => (c.frames - counts[i]) / elapsed);
@@ -422,7 +535,7 @@ test('two rendering Chrome clients remain responsive with ten connected players'
       expect(result.drawCalls).toBeLessThan(500);
     }
     console.log('Ten-player performance:', JSON.stringify({ results, snapshotRates }));
-    await testInfo.attach('ten-player-performance', { body: JSON.stringify({ results, snapshotRates, elapsed, interpolated }), contentType: 'application/json' });
+    await testInfo.attach('ten-player-performance', { body: JSON.stringify({ results, snapshotRates, elapsed, interpolated, memoryBefore, memoryAfter }), contentType: 'application/json' });
     await pages[0].screenshot({ path: 'test-results/ten-player-load.png' });
     expect(A.errors).toEqual([]); expect(B.errors).toEqual([]);
   } finally {
@@ -432,7 +545,9 @@ test('two rendering Chrome clients remain responsive with ten connected players'
 });
 
 test('software rendering starts two clients and reconnects without an empty HUD', async ({}, testInfo) => {
-  test.setTimeout(90000);
+  // Two CPU-rendered worlds and four scene rebuilds need a larger total budget;
+  // individual connection/readiness assertions retain their existing deadlines.
+  test.setTimeout(180000);
   const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] });
   try {
     const contexts = await Promise.all([browser.newContext({ viewport: { width: 1440, height: 900 } }), browser.newContext({ viewport: { width: 1440, height: 900 } })]);
@@ -444,7 +559,7 @@ test('software rendering starts two clients and reconnects without an empty HUD'
     for (let join = 0; join < 2; join++) {
       await pages[1].getByRole('button', { name: 'Personajes', exact: true }).click();
       await expect.poll(() => A.state!.players.length).toBe(1);
-      await pages[1].locator(`[data-character="${playerB.characterId}"]`).click();
+      await pages[1].locator(`[data-character="${playerB.characterId}"]`).click(); await pages[1].locator('#enter-world').click();
       await expect(pages[1].locator('#viewport canvas')).toHaveAttribute('data-ready', 'true', { timeout: 15000 });
       await expect(pages[1].locator('#character-name')).not.toBeEmpty();
       await expect.poll(() => A.state!.players.length).toBe(2);
@@ -456,4 +571,57 @@ test('software rendering starts two clients and reconnects without an empty HUD'
     console.log('Software second client startup:', startupMs, 'ms');
     await testInfo.attach('software-startup', { body: JSON.stringify({ startupMs, diagnostics }), contentType: 'application/json' });
   } finally { await browser.close(); }
+});
+
+test('level-one grinding loop reaches gear, city services and Sanctum without admin helpers', async ({ page }, testInfo) => {
+  test.setTimeout(300000);
+  const observed = observe(page), player = await register(page, 'beginner', 'VANGUARD');
+  const started = Date.now();
+  await walkTo(page, observed, { x: 0, z: 20 }); await walkTo(page, observed, { x: 0, z: 29 });
+  expect(observed.state!.self.level).toBe(1);
+  await page.keyboard.press('4');
+  await expect.poll(() => observed.state!.cooldowns['war-cry'] ?? 0).toBeGreaterThan(0);
+  await page.keyboard.press('0');
+  let kills = 0, pickedCrowns = false;
+  let gear: Character['inventory'][number] | undefined;
+  while ((!gear || observed.state!.self.level < 2) && Date.now() - started < 180000) {
+    await expect.poll(() => observed.state!.monsters.some(m => m.definitionId === 'sproutling' && m.hp > 0 && Math.hypot(m.x - observed.state!.self.x, m.z - observed.state!.self.z) < 18)).toBe(true);
+    const target = await clickVisibleSprout(page, observed.state!.monsters.filter(m => m.hp > 0).map(m => m.id));
+    await expect.poll(() => observed.state!.monsters.find(m => m.id === target)?.hp).toBe(0); kills++;
+    for (const drop of observed.state!.loot.filter(d => d.ownerId === player.characterId)) {
+      const before = observed.state!.self.crowns;
+      await clickEntity(page, drop.id);
+      await expect.poll(() => observed.state!.loot.some(d => d.id === drop.id)).toBe(false);
+      if (drop.kind === 'crowns') { expect(observed.state!.self.crowns).toBeGreaterThan(before); pickedCrowns = true; }
+    }
+    gear = observed.state!.self.inventory.find(item => {
+      const def = items.find(d => d.id === item.definitionId)!;
+      return !!def.slot && Object.entries(def.requirements ?? {}).every(([stat, required]) => observed.state!.self.stats[stat as keyof Character['stats']] >= required);
+    });
+  }
+  expect(kills).toBeGreaterThanOrEqual(2); expect(pickedCrowns).toBe(true); expect(gear).toBeTruthy();
+  await page.keyboard.press('c');
+  const vitality = observed.state!.self.stats.vitality;
+  await page.locator('[data-stat="vitality"][data-amount="5"]').click();
+  await expect.poll(() => observed.state!.self.stats.vitality).toBe(vitality + 5);
+  await page.keyboard.press('Escape'); await page.keyboard.press('i');
+  await page.locator(`[data-item="${gear!.id}"]`).dblclick();
+  const slot = items.find(d => d.id === gear!.definitionId)!.slot!;
+  await expect.poll(() => observed.state!.self.equipment[slot]?.id).toBe(gear!.id);
+  await page.keyboard.press('Escape'); await page.screenshot({ path: 'test-results/beginner-farming.png' });
+  await walkTo(page, observed, { x: 0, z: 30 }); await walkTo(page, observed, { x: 0, z: 20 }); await walkTo(page, observed, { x: 0, z: 10 });
+  await clickEntity(page, 'npc-lyra'); await expect(page.locator('[data-buy="hp-potion"]')).toBeVisible();
+  const crowns = observed.state!.self.crowns;
+  await page.locator('[data-buy="hp-potion"]').click(); await expect.poll(() => observed.state!.self.crowns).toBe(crowns - 15);
+  await page.keyboard.press('Escape'); await walkTo(page, observed, { x: 0, z: 10 });
+  await clickEntity(page, 'npc-brom'); await expect(page.locator('#repair')).toBeVisible();
+  await page.locator('#repair').click(); await expect(page.locator('#notices')).toContainText('reparado');
+  await page.keyboard.press('Escape'); await clickEntity(page, 'npc-orin');
+  const bag = page.locator('.inventory-grid[data-container="inventory"]'), vault = page.locator('.inventory-grid[data-container="sanctum"]');
+  await expect(bag).toBeVisible(); const storedId = await bag.locator('.item').first().getAttribute('data-item');
+  await bag.locator('.item').first().dblclick(); await expect(vault.locator(`[data-item="${storedId}"]`)).toBeVisible();
+  await page.screenshot({ path: 'test-results/beginner-sanctum.png' });
+  await vault.locator(`[data-item="${storedId}"]`).dblclick(); await expect(bag.locator(`[data-item="${storedId}"]`)).toBeVisible();
+  expect(observed.errors).toEqual([]);
+  await testInfo.attach('natural-beginner-loop', { body: JSON.stringify({ kills, elapsedMs: Date.now() - started, level: observed.state!.self.level, equipped: gear!.definitionId, crowns: observed.state!.self.crowns, adminHelpers: false }), contentType: 'application/json' });
 });

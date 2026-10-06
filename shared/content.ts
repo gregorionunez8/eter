@@ -1,8 +1,9 @@
 /** Single source of truth for content, formulas and provisional balance. */
+import type { ItemModifiers } from './model';
 export type ClassId = 'VANGUARD' | 'ARCANIST' | 'RANGER';
 export type Stat = 'strength' | 'agility' | 'vitality' | 'energy';
 export type Stats = Record<Stat, number>;
-export type Slot = 'helmet' | 'armor' | 'pants' | 'gloves' | 'boots' | 'weapon' | 'offhand' | 'wings' | 'necklace' | 'ring1' | 'ring2';
+export type Slot = 'helmet' | 'chest' | 'pants' | 'gloves' | 'boots' | 'weapon' | 'offhand' | 'wings' | 'necklace' | 'ring1' | 'ring2';
 export const balance = {
   maxLevel: 500, pointsPerLevel: 5, resetBonusPoints: 300,
   lootExclusiveMs: 30_000, lootLifetimeMs: 180_000,
@@ -17,7 +18,7 @@ export const balance = {
   lowDurabilityThreshold: 0.15, repairCostPerPoint: 1,
   potionHp: 100, potionMana: 100, potionCooldownMs: 1000,
   itemDropChance: 0.3, crownsBaseAmount: 5, crownsPerMonsterLevel: 3, crownsRandomAmount: 8,
-  salePriceMultiplier: 0.3,
+  salePriceMultiplier: 0.3, npcPriceMultiplier: 1,
   combatManaRegenPerSecond: 2, safeManaRegenPerSecond: 8, safeHpRegenPerSecond: 10,
   monsterReturnHealingSeconds: 4,
 };
@@ -56,6 +57,7 @@ export const skills: SkillDefinition[] = [
 export interface MonsterDefinition {
   id: string; name: string; level: number; hp: number; damage: number; defense: number; xp: number; speed: number; aggroRange: number; leashRange: number; attackMs: number; color: number;
   drops?: { crownsChance?: number; etherChance?: number; itemChance?: number; itemIds?: string[] };
+  aggroMode?: 'passive' | 'aggressive'; attackRange?: number; chaseDistance?: number;
 }
 export const monsters: MonsterDefinition[] = [
   { id: 'sproutling', name: 'Sproutling', level: 1, hp: 45, damage: 5, defense: 0, xp: 25, speed: 2, aggroRange: 0, leashRange: 14, attackMs: 1600, color: 0x83ad57 },
@@ -67,7 +69,7 @@ export const monsters: MonsterDefinition[] = [
   { id: 'orc-scout', name: 'Orc Scout', level: 24, hp: 750, damage: 52, defense: 20, xp: 600, speed: 3, aggroRange: 10, leashRange: 24, attackMs: 1400, color: 0x75816a },
   { id: 'stone-golem', name: 'Stone Golem', level: 32, hp: 1200, damage: 75, defense: 30, xp: 1000, speed: 1.8, aggroRange: 10, leashRange: 22, attackMs: 2200, color: 0x879ea5 },
 ];
-export interface Spot { id: string; monsterId: string; x: number; z: number; radius: number; count: number; respawnMs: number }
+export interface Spot { id: string; monsterId: string; x: number; z: number; radius: number; count: number; respawnMs: number; enabled?: boolean; region?: 'Greenfields' | 'Whisperwood' | 'Stonepass' | 'Ether Ruins' }
 export const spots: Spot[] = [
   { id: 'green-1', monsterId: 'sproutling', x: 8, z: 38, radius: 6, count: 5, respawnMs: 12000 },
   { id: 'green-2', monsterId: 'sproutling', x: -12, z: 48, radius: 6, count: 4, respawnMs: 12000 },
@@ -79,27 +81,33 @@ export const spots: Spot[] = [
   { id: 'ruins-1', monsterId: 'orc-scout', x: -12, z: -46, radius: 7, count: 5, respawnMs: 22000 },
   { id: 'ruins-2', monsterId: 'stone-golem', x: 15, z: -62, radius: 7, count: 3, respawnMs: 25000 },
 ];
-export interface ItemDefinition { id: string; name: string; width: number; height: number; slot?: Slot; requirements?: Partial<Stats>; affinity?: ClassId; damage?: number; defense?: number; affinityBonus?: number; price: number; durability?: number; consumable?: 'hp' | 'mana'; color: number }
+export interface ItemDefinition { id: string; name: string; width: number; height: number; slot?: Slot; requirements?: Partial<Stats>; affinity?: ClassId; damage?: number; defense?: number; affinityBonus?: number; price: number; durability?: number; consumable?: 'hp' | 'mana'; color: number; quality?: 'common' | 'uncommon' | 'rare'; setId?: string; dropEligible?: boolean; properties?: ItemModifiers }
 export const items: ItemDefinition[] = [
   { id: 'hp-potion', name: 'Poción de vida', width: 1, height: 1, price: 15, consumable: 'hp', color: 0xc95555 },
   { id: 'mana-potion', name: 'Poción de mana', width: 1, height: 1, price: 15, consumable: 'mana', color: 0x5c87d9 },
   { id: 'iron-sword', name: 'Espada de hierro', width: 1, height: 3, slot: 'weapon', requirements: { strength: 18 }, affinity: 'VANGUARD', damage: 12, affinityBonus: 0.2, price: 100, durability: 100, color: 0xb4bdc5 },
   { id: 'ether-staff', name: 'Bastón de Éter', width: 1, height: 3, slot: 'weapon', requirements: { energy: 20 }, affinity: 'ARCANIST', damage: 14, affinityBonus: 0.2, price: 100, durability: 100, color: 0x80b9ce },
   { id: 'ash-bow', name: 'Arco de fresno', width: 2, height: 3, slot: 'weapon', requirements: { agility: 18 }, affinity: 'RANGER', damage: 12, affinityBonus: 0.2, price: 100, durability: 100, color: 0xb18b54 },
-  { id: 'steel-armor', name: 'Armadura de acero', width: 2, height: 3, slot: 'armor', requirements: { strength: 100 }, affinity: 'VANGUARD', defense: 35, affinityBonus: 0.25, price: 900, durability: 150, color: 0x98aab5 },
-  { id: 'linen-armor', name: 'Armadura de lino', width: 2, height: 3, slot: 'armor', defense: 5, price: 80, durability: 80, color: 0xddd1b2 },
+  { id: 'steel-armor', name: 'Pechera de acero', width: 2, height: 3, slot: 'chest', requirements: { strength: 100 }, affinity: 'VANGUARD', defense: 35, affinityBonus: 0.25, price: 900, durability: 150, color: 0x98aab5 },
+  { id: 'linen-armor', name: 'Pechera de lino', width: 2, height: 3, slot: 'chest', defense: 5, price: 80, durability: 80, color: 0xddd1b2 },
   { id: 'leather-boots', name: 'Botas de cuero', width: 2, height: 2, slot: 'boots', defense: 3, price: 50, durability: 80, color: 0x907250 },
+  { id: 'bronze-helmet', name: 'Casco de bronce', width: 2, height: 2, slot: 'helmet', requirements: { strength: 20 }, defense: 4, price: 90, durability: 90, color: 0xb39765, setId: 'aurelia-guard' },
+  { id: 'leather-pants', name: 'Pantalón de cuero', width: 2, height: 2, slot: 'pants', defense: 3, price: 70, durability: 80, color: 0x806545, setId: 'trail-leather' },
+  { id: 'leather-gloves', name: 'Guantes de cuero', width: 1, height: 1, slot: 'gloves', defense: 2, price: 45, durability: 65, color: 0x947750, setId: 'trail-leather' },
+  { id: 'wooden-shield', name: 'Escudo de roble', width: 2, height: 3, slot: 'offhand', requirements: { strength: 18 }, defense: 6, price: 120, durability: 100, color: 0x8c7955 },
+  { id: 'copper-necklace', name: 'Collar de cobre', width: 1, height: 1, slot: 'necklace', defense: 1, price: 65, durability: 100, color: 0xb09b76 },
+  { id: 'copper-ring', name: 'Anillo de cobre', width: 1, height: 1, slot: 'ring1', defense: 1, price: 60, durability: 100, color: 0xbfa679 },
 ];
-export const equipmentSlots: Slot[] = ['helmet', 'armor', 'pants', 'gloves', 'boots', 'weapon', 'offhand', 'wings', 'necklace', 'ring1', 'ring2'];
+export const equipmentSlots: Slot[] = ['helmet', 'chest', 'pants', 'gloves', 'boots', 'weapon', 'offhand', 'wings', 'necklace', 'ring1', 'ring2'];
 export interface NpcDefinition { id: string; name: string; role: string; x: number; z: number; dialogue: string; shop: string[] }
 export const npcs: NpcDefinition[] = [
-  { id: 'brom', name: 'Brom', role: 'Herrero', x: -12, z: 4, dialogue: 'Una hoja bien cuidada vale por dos. ¿Reparamos tu equipo?', shop: ['iron-sword', 'steel-armor', 'leather-boots'] },
+  { id: 'brom', name: 'Brom', role: 'Herrero', x: -12, z: 4, dialogue: 'Una hoja bien cuidada vale por dos. ¿Reparamos tu equipo?', shop: ['iron-sword', 'steel-armor', 'leather-boots', 'bronze-helmet', 'wooden-shield'] },
   { id: 'lyra', name: 'Lyra', role: 'Alquimista', x: 12, z: 5, dialogue: 'Un poco de luz embotellada para el camino.', shop: ['hp-potion', 'mana-potion'] },
   { id: 'orin', name: 'Orin', role: 'Sanctum', x: -12, z: -7, dialogue: 'Tu Sanctum guarda lo que aún no necesitás llevar.', shop: [] },
   { id: 'kael', name: 'Kael', role: 'Portales', x: 12, z: -8, dialogue: 'La red de Éter siempre te traerá de vuelta a Aurelia.', shop: [] },
   { id: 'seraph', name: 'Seraph', role: 'Maestro de habilidades', x: 0, z: -13, dialogue: 'Cuatro disciplinas acompañan tu clase. Practicá y encontrá tu ritmo.', shop: [] },
-  { id: 'ronan', name: 'Ronan', role: 'Armas de Vanguard', x: -17, z: 12, dialogue: 'Firmeza en los pies, valor en el corazón.', shop: ['iron-sword', 'linen-armor'] },
-  { id: 'elyra', name: 'Elyra', role: 'Equipo de Arcanist', x: 17, z: 12, dialogue: 'El Éter responde a quien sabe escuchar.', shop: ['ether-staff', 'linen-armor'] },
-  { id: 'sylwen', name: 'Sylwen', role: 'Equipo de Ranger', x: 17, z: -15, dialogue: 'Seguí el viento, pero elegí tu propio rumbo.', shop: ['ash-bow', 'leather-boots'] },
+  { id: 'ronan', name: 'Ronan', role: 'Armas de Vanguard', x: -17, z: 12, dialogue: 'Firmeza en los pies, valor en el corazón.', shop: ['iron-sword', 'linen-armor', 'wooden-shield', 'leather-pants'] },
+  { id: 'elyra', name: 'Elyra', role: 'Equipo de Arcanist', x: 17, z: 12, dialogue: 'El Éter responde a quien sabe escuchar.', shop: ['ether-staff', 'linen-armor', 'copper-necklace', 'copper-ring'] },
+  { id: 'sylwen', name: 'Sylwen', role: 'Equipo de Ranger', x: 17, z: -15, dialogue: 'Seguí el viento, pero elegí tu propio rumbo.', shop: ['ash-bow', 'leather-boots', 'leather-pants', 'leather-gloves'] },
   { id: 'reset-master', name: 'Maestro de Reset', role: 'Renacimiento', x: -17, z: -15, dialogue: 'Al nivel 500 comienza una nueva vuelta del camino.', shop: [] },
 ];
